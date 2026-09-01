@@ -314,19 +314,20 @@ _DETECTED_GPU_ENCODERS: Optional[Dict[str, Any]] = None
 
 
 def detect_available_gpu_encoders() -> Dict[str, Any]:
-    """Dynamically detect available hardware GPU encoders (NVIDIA NVENC, Intel QSV, AMD AMF, Apple VideoToolbox, etc.)."""
+    """Dynamically test and detect available hardware GPU encoders (NVIDIA NVENC, Intel QSV, AMD AMF, Apple VideoToolbox, etc.)."""
     global _DETECTED_GPU_ENCODERS
     if _DETECTED_GPU_ENCODERS is not None:
         return _DETECTED_GPU_ENCODERS
 
     ffmpeg_bin = get_ffmpeg_binary()
     encoders = set()
+    startupinfo = None
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+
     try:
-        startupinfo = None
-        if sys.platform == "win32":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
         res = subprocess.run([ffmpeg_bin, "-encoders"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=5)
         for line in res.stdout.splitlines():
             m = re.search(r"^\s*V\S*\s+(\S+)", line)
@@ -335,56 +336,63 @@ def detect_available_gpu_encoders() -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Test if NVENC can actually run with current hardware/driver
-    has_nvenc = False
-    if "h264_nvenc" in encoders:
+    def _test_encoder(encoder_name: str) -> bool:
+        if encoder_name not in encoders:
+            return False
         try:
             test_cmd = [
-                ffmpeg_bin, "-y", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.1",
-                "-c:v", "h264_nvenc", "-f", "null", "-"
+                ffmpeg_bin, "-y", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.05",
+                "-c:v", encoder_name, "-f", "null", "-"
             ]
-            t_res = subprocess.run(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=4)
-            if t_res.returncode == 0:
-                has_nvenc = True
+            t_res = subprocess.run(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=3)
+            return t_res.returncode == 0
         except Exception:
-            pass
+            return False
 
-    has_qsv = "h264_qsv" in encoders
-    has_amf = "h264_amf" in encoders
-    has_videotoolbox = "h264_videotoolbox" in encoders
+    has_nvenc_h264 = _test_encoder("h264_nvenc")
+    has_nvenc_hevc = _test_encoder("hevc_nvenc")
+    has_qsv_h264 = _test_encoder("h264_qsv")
+    has_qsv_hevc = _test_encoder("hevc_qsv")
+    has_amf_h264 = _test_encoder("h264_amf")
+    has_amf_hevc = _test_encoder("hevc_amf")
+    has_vt_h264 = _test_encoder("h264_videotoolbox")
+    has_vt_hevc = _test_encoder("hevc_videotoolbox")
 
     h264_list = []
     hevc_list = []
 
-    if has_nvenc:
+    if has_nvenc_h264:
         h264_list.append({"name": "h264_nvenc", "label": "NVIDIA NVENC (GPU)"})
-        if "hevc_nvenc" in encoders:
-            hevc_list.append({"name": "hevc_nvenc", "label": "NVIDIA NVENC (GPU)"})
-    if has_qsv:
+    if has_nvenc_hevc:
+        hevc_list.append({"name": "hevc_nvenc", "label": "NVIDIA NVENC (GPU)"})
+
+    if has_qsv_h264:
         h264_list.append({"name": "h264_qsv", "label": "Intel QuickSync (GPU)"})
-        if "hevc_qsv" in encoders:
-            hevc_list.append({"name": "hevc_qsv", "label": "Intel QuickSync (GPU)"})
-    if has_amf:
+    if has_qsv_hevc:
+        hevc_list.append({"name": "hevc_qsv", "label": "Intel QuickSync (GPU)"})
+
+    if has_amf_h264:
         h264_list.append({"name": "h264_amf", "label": "AMD AMF (GPU)"})
-        if "hevc_amf" in encoders:
-            hevc_list.append({"name": "hevc_amf", "label": "AMD AMF (GPU)"})
-    if has_videotoolbox:
+    if has_amf_hevc:
+        hevc_list.append({"name": "hevc_amf", "label": "AMD AMF (GPU)"})
+
+    if has_vt_h264:
         h264_list.append({"name": "h264_videotoolbox", "label": "Apple VideoToolbox (GPU)"})
-        if "hevc_videotoolbox" in encoders:
-            hevc_list.append({"name": "hevc_videotoolbox", "label": "Apple VideoToolbox (GPU)"})
+    if has_vt_hevc:
+        hevc_list.append({"name": "hevc_videotoolbox", "label": "Apple VideoToolbox (GPU)"})
 
     # Always provide CPU software encoders
     h264_list.append({"name": "libx264", "label": "CPU Software (x264)"})
     hevc_list.append({"name": "libx265", "label": "CPU Software (x265)"})
 
-    has_gpu = has_nvenc or has_qsv or has_amf or has_videotoolbox
-    if has_nvenc:
+    has_gpu = bool(has_nvenc_h264 or has_qsv_h264 or has_amf_h264 or has_vt_h264)
+    if has_nvenc_h264:
         primary = "NVIDIA NVENC (GPU)"
-    elif has_qsv:
+    elif has_qsv_h264:
         primary = "Intel QuickSync (GPU)"
-    elif has_videotoolbox:
+    elif has_vt_h264:
         primary = "Apple VideoToolbox (GPU)"
-    elif has_amf:
+    elif has_amf_h264:
         primary = "AMD AMF (GPU)"
     else:
         primary = "CPU Software (x264)"
@@ -392,7 +400,10 @@ def detect_available_gpu_encoders() -> Dict[str, Any]:
     result = {
         "has_gpu": has_gpu,
         "primary_gpu": primary,
-        "has_nvenc": has_nvenc,
+        "has_nvenc": has_nvenc_h264,
+        "has_qsv": has_qsv_h264,
+        "has_amf": has_amf_h264,
+        "has_videotoolbox": has_vt_h264,
         "h264_encoders": h264_list,
         "hevc_encoders": hevc_list,
     }
@@ -415,34 +426,28 @@ def select_best_encoder(codec_type: str = "h264", gpu_preference: str = "nvenc")
     if pref in ["cpu", "software"]:
         chosen_encoder = "libx265" if is_hevc else "libx264"
         display_label = f"CPU Software ({chosen_encoder})"
-    elif pref in ["qsv", "intel"]:
+    elif pref in ["qsv", "intel"] and gpu_info.get("has_qsv"):
         chosen_encoder = "hevc_qsv" if is_hevc else "h264_qsv"
         display_label = "Intel QuickSync (GPU)"
-    elif pref in ["amf", "amd"]:
+    elif pref in ["amf", "amd"] and gpu_info.get("has_amf"):
         chosen_encoder = "hevc_amf" if is_hevc else "h264_amf"
         display_label = "AMD AMF (GPU)"
-    elif pref in ["videotoolbox", "apple"]:
+    elif pref in ["videotoolbox", "apple"] and gpu_info.get("has_videotoolbox"):
         chosen_encoder = "hevc_videotoolbox" if is_hevc else "h264_videotoolbox"
         display_label = "Apple VideoToolbox (GPU)"
-    else:  # Default / nvenc
+    else:  # Default / nvenc / auto
         if gpu_info.get("has_nvenc"):
             chosen_encoder = "hevc_nvenc" if is_hevc else "h264_nvenc"
             display_label = "NVIDIA NVENC (GPU)"
-        elif gpu_info.get("has_gpu"):
-            # Use another available GPU encoder
-            primary_label = gpu_info.get("primary_gpu", "")
-            if "QuickSync" in primary_label:
-                chosen_encoder = "hevc_qsv" if is_hevc else "h264_qsv"
-                display_label = "Intel QuickSync (GPU)"
-            elif "VideoToolbox" in primary_label:
-                chosen_encoder = "hevc_videotoolbox" if is_hevc else "h264_videotoolbox"
-                display_label = "Apple VideoToolbox (GPU)"
-            elif "AMF" in primary_label:
-                chosen_encoder = "hevc_amf" if is_hevc else "h264_amf"
-                display_label = "AMD AMF (GPU)"
-            else:
-                chosen_encoder = "libx265" if is_hevc else "libx264"
-                display_label = f"CPU Software ({chosen_encoder})"
+        elif gpu_info.get("has_qsv"):
+            chosen_encoder = "hevc_qsv" if is_hevc else "h264_qsv"
+            display_label = "Intel QuickSync (GPU)"
+        elif gpu_info.get("has_videotoolbox"):
+            chosen_encoder = "hevc_videotoolbox" if is_hevc else "h264_videotoolbox"
+            display_label = "Apple VideoToolbox (GPU)"
+        elif gpu_info.get("has_amf"):
+            chosen_encoder = "hevc_amf" if is_hevc else "h264_amf"
+            display_label = "AMD AMF (GPU)"
         else:
             # Fallback smoothly to CPU
             chosen_encoder = "libx265" if is_hevc else "libx264"
@@ -452,17 +457,15 @@ def select_best_encoder(codec_type: str = "h264", gpu_preference: str = "nvenc")
 
     if "nvenc" in chosen_encoder:
         flags.extend([
-            "-preset", "p6",           # High quality preset (P6)
-            "-tune", "hq",             # High quality tuning
-            "-spatial_aq", "1",        # Spatial Adaptive Quantization
-            "-temporal_aq", "1",       # Temporal Adaptive Quantization
+            "-preset", "p6",
+            "-tune", "hq",
             "-pix_fmt", "yuv420p",
         ])
         if is_hevc:
             flags.extend(["-tag:v", "hvc1"])
     elif "qsv" in chosen_encoder:
         flags.extend([
-            "-preset", "veryslow",
+            "-preset", "medium",
             "-pix_fmt", "nv12",
         ])
         if is_hevc:
@@ -480,10 +483,6 @@ def select_best_encoder(codec_type: str = "h264", gpu_preference: str = "nvenc")
         ])
         if is_hevc:
             flags.extend(["-tag:v", "hvc1"])
-    elif "mf" in chosen_encoder:
-        flags.extend([
-            "-pix_fmt", "yuv420p",
-        ])
     else:  # libx264 / libx265
         flags.extend([
             "-preset", "slow",
@@ -1043,27 +1042,64 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
 
         # Encode directly to the final output file in a single pass without intermediate batch chunks
         temp_script_dir = output_dir
-        run_single_pass_encode(
-            valid_files,
-            probed_infos,
-            output_path,
-            target_w,
-            target_h,
-            target_fps,
-            color_filter_str,
-            audio_filter_str,
-            enc_flags,
-            bitrate_flags,
-            out_format,
-            temp_script_dir,
-            ffmpeg_bin,
-            task_id,
-            update_task,
-            0.0,
-            total_effective_duration,
-            cut_end_seconds=cut_end_seconds,
-            mirror=mirror,
-        )
+        try:
+            run_single_pass_encode(
+                valid_files,
+                probed_infos,
+                output_path,
+                target_w,
+                target_h,
+                target_fps,
+                color_filter_str,
+                audio_filter_str,
+                enc_flags,
+                bitrate_flags,
+                out_format,
+                temp_script_dir,
+                ffmpeg_bin,
+                task_id,
+                update_task,
+                0.0,
+                total_effective_duration,
+                cut_end_seconds=cut_end_seconds,
+                mirror=mirror,
+            )
+        except Exception as encode_err:
+            err_text = str(encode_err)
+            if any(k in err_text.lower() for k in ["mfx", "qsv", "nvenc", "cuda", "amf", "videotoolbox", "opening encoder", "encoder for output stream"]):
+                print(f"[Encoder Fallback] GPU encoder failed ({err_text[:100]}). Falling back to CPU libx264...")
+                update_task(
+                    message="Bộ mã hóa GPU không khởi động được. Đang tự động chuyển sang CPU (libx264) để hoàn tất ghép video...",
+                    gpu_encoder="CPU Software (libx264)"
+                )
+                cpu_encoder, cpu_enc_flags, cpu_bitrate_flags, cpu_label = build_encoding_args(
+                    codec=codec,
+                    gpu_pref="cpu",
+                    probed_infos=probed_infos,
+                )
+                run_single_pass_encode(
+                    valid_files,
+                    probed_infos,
+                    output_path,
+                    target_w,
+                    target_h,
+                    target_fps,
+                    color_filter_str,
+                    audio_filter_str,
+                    cpu_enc_flags,
+                    cpu_bitrate_flags,
+                    out_format,
+                    temp_script_dir,
+                    ffmpeg_bin,
+                    task_id,
+                    update_task,
+                    0.0,
+                    total_effective_duration,
+                    cut_end_seconds=cut_end_seconds,
+                    mirror=mirror,
+                )
+            else:
+                raise encode_err
 
         with MERGE_LOCK:
             task_status = MERGE_TASKS.get(task_id, {})
