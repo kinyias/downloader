@@ -1,0 +1,3236 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trình Tải Phim Ngắn Hồng Quả · Hongguo Downloader</title>
+  <link rel="icon" href="/assets/app_icon.ico" type="image/x-icon">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              200: '#bfdbfe',
+              300: '#93c5fd',
+              400: '#60a5fa',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a',
+            },
+          },
+          fontFamily: {
+            sans: ['"Be Vietnam Pro"', 'Inter', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Custom Glassmorphism Stylesheet -->
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="min-h-full flex flex-col antialiased text-slate-800 selection:bg-blue-500 selection:text-white">
+
+  <!-- Main Container -->
+  <div class="max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex-1 flex flex-col gap-6">
+
+    <!-- Top Header Bar -->
+    <header class="glass-panel rounded-2xl p-5 sm:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all">
+      <div class="flex items-center gap-3.5">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/30 flex-shrink-0">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2.5 flex-wrap">
+            <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-gradient">Trình Tải Phim Ngắn Hồng Quả</h1>
+            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-700 border border-blue-200 shadow-sm">Hongguo Edition v2.0</span>
+          </div>
+          <p class="text-xs sm:text-sm text-slate-500 mt-1">Tìm kiếm Hồng Quả • Phân tích & Tải chất lượng cao • Quản lý hàng đợi hàng loạt</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex items-center gap-2 bg-slate-200/60 p-1.5 rounded-xl border border-slate-300/60 shadow-inner w-full md:w-auto overflow-x-auto">
+        <button data-tab="search" class="tab-btn active flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 whitespace-nowrap bg-white text-blue-700 shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </button>
+        <button data-tab="detail" class="tab-btn flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 whitespace-nowrap text-slate-600 hover:text-slate-900 hover:bg-white/50">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+        <button data-tab="downloads" class="tab-btn flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 whitespace-nowrap text-slate-600 hover:text-slate-900 hover:bg-white/50">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <span id="queueBadge" class="hidden px-1.5 py-0.2 text-xs font-bold rounded-full bg-blue-600 text-white">0</span>
+        </button>
+        <button data-tab="settings" class="tab-btn flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 whitespace-nowrap text-slate-600 hover:text-slate-900 hover:bg-white/50">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span id="configIndicator" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- SECTION 1: SEARCH & EXPLORE -->
+    <section id="search" class="tab-panel active animate-fade-in flex flex-col gap-5">
+      <!-- Search Filter Panel -->
+      <div class="glass-panel rounded-2xl p-5 sm:p-6 shadow-sm">
+        <div class="flex items-center justify-between pb-4 mb-4 border-b border-slate-200/80">
+          <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <span class="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-100 text-blue-700 text-xs font-bold">1</span>
+            Bộ Lọc & Tìm Kiếm Phim Hồng Quả
+          </h2>
+          <span class="text-xs text-slate-500 font-medium">Hỗ trợ tìm kiếm theo từ khóa và phân loại thể loại</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
+          <!-- Keyword -->
+          <div class="lg:col-span-4">
+            <label for="keyword" class="block text-xs font-semibold text-slate-600 mb-1.5">Từ khóa tìm kiếm</label>
+            <div class="relative">
+              <input id="keyword" type="text" value="穿越" placeholder="Nhập tên phim, thể loại (vd: Xuyên không, Trọng sinh...)" class="glass-input w-full pl-9 pr-3 py-2.5 rounded-xl text-sm outline-none font-medium">
+              <svg class="w-4 h-4 text-slate-400 absolute left-3 top-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            </div>
+          </div>
+
+          <!-- Page -->
+          <div class="sm:col-span-1 lg:col-span-2">
+            <label for="page" class="block text-xs font-semibold text-slate-600 mb-1.5">Trang</label>
+            <input id="page" type="number" min="1" value="1" class="glass-input w-full px-3 py-2.5 rounded-xl text-sm outline-none font-medium">
+          </div>
+
+          <!-- Source -->
+          <div class="sm:col-span-1 lg:col-span-3">
+            <label for="source" class="block text-xs font-semibold text-slate-600 mb-1.5">Nguồn dữ liệu</label>
+            <select id="source" class="glass-input w-full px-3 py-2.5 rounded-xl text-sm outline-none font-medium">
+              <option value="红果短剧" selected>Hồng Quả Phim Ngắn (Hongguo)</option>
+            </select>
+          </div>
+
+          <!-- Buttons -->
+          <div class="sm:col-span-2 lg:col-span-3 flex gap-2">
+            <button id="searchBtn" class="btn-primary-gradient flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-white font-semibold text-sm shadow-md transition-all">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <span>Tìm Kiếm</span>
+            </button>
+            <button id="downloadSelectedTop" class="btn-accent-gradient flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-white font-semibold text-sm shadow-md transition-all">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              <span>Tải Mục Chọn</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Category & Quick Filter Row -->
+        <div class="mt-4 pt-4 border-t border-slate-200/60 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+          <div class="flex-1 flex items-center gap-2">
+            <input id="categoryFilter" type="text" placeholder="Lọc theo thể loại phụ, vd: 穿越 (Xuyên không), 甜宠 (Ngọt sủng), 逆袭 (Nghịch tập)..." class="glass-input flex-1 px-3.5 py-2 rounded-xl text-xs sm:text-sm outline-none font-medium">
+            <button id="applyFilter" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-all border border-slate-300/80 whitespace-nowrap">
+              Áp Dụng Lọc
+            </button>
+          </div>
+          <div class="flex items-center gap-2 self-end md:self-auto">
+            <button id="exportSearch" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-all border border-slate-300/80 flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Xuất CSV
+            </button>
+            <button id="clearRows" class="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold text-xs transition-all border border-rose-200 flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              Xóa Bảng
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Tags / Popular Genres -->
+        <div class="mt-3 flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs font-semibold text-slate-500 flex items-center gap-1 mr-1">
+            <svg class="w-3.5 h-3.5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.527.82-1.134 1.904-1.53 2.858-1.077 2.6-1.993 5.42-2.193 6.13a4.5 4.5 0 008.204 3.738 5.446 5.446 0 00.396-2.09c0-1.472-.647-2.825-1.53-3.957-.42-.538-.893-1.02-1.075-1.184zm-3.076 8.94c.14-.37.382-.93.684-1.638.455 1.133 1.05 2.213 1.77 3.208a2.5 2.5 0 01-4.048-2.09c.07-.318.232-.782.594-1.48z" clip-rule="evenodd"/></svg>
+            Gợi ý thể loại:
+          </span>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/70" data-genre="穿越">穿越 (Xuyên Không)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/70" data-genre="重生">重生 (Trọng Sinh)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200/70" data-genre="豪门">豪门 (Tổng Tài / Hào Môn)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/70" data-genre="甜宠">甜宠 (Ngọt Sủng)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/70" data-genre="战神">战神 (Chiến Thần)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200/70" data-genre="神医">神医 (Thần Y)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200/70" data-genre="赘婿">赘婿 (Ở Rể)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-fuchsia-50 hover:bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200/70" data-genre="大女主">大女主 (Nữ Cường)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200/70" data-genre="仙侠">仙侠 (Tiên Hiệp)</button>
+          <button class="chip-tag px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300/70" data-genre="系统">系统 (Hệ Thống)</button>
+        </div>
+
+        <!-- Hint Alert Box -->
+        <div id="searchHint" class="mt-4 p-3 rounded-xl bg-blue-50/80 border border-blue-200/70 text-blue-900 text-xs flex items-center gap-2">
+          <svg class="w-4 h-4 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span class="flex-1">Chuyên trang tìm kiếm & tải phim từ Hồng Quả (Hongguo). Hỗ trợ tải trực tiếp tập phim chất lượng cao bằng Mã Phim (Drama ID).</span>
+        </div>
+      </div>
+
+      <!-- Results Table Panel -->
+      <div class="glass-panel rounded-2xl overflow-hidden shadow-sm flex flex-col">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse min-w-[950px]">
+            <thead>
+              <tr class="bg-blue-50/80 text-slate-700 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
+                <th class="p-3.5 w-12 text-center">
+                  <input type="checkbox" id="checkAll" class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer">
+                </th>
+                <th class="p-3.5 w-12 text-center">STT</th>
+                <th class="p-3.5 w-28 text-center">Ảnh Bìa</th>
+                <th class="p-3.5">Tên Phim Ngắn</th>
+                <th class="p-3.5">Mã Phim (Drama ID)</th>
+                <th class="p-3.5 text-center">Số Tập</th>
+                <th class="p-3.5">Thể Loại</th>
+                <th class="p-3.5 text-center">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody id="resultBody" class="text-sm divide-y divide-slate-200/60 bg-white/40">
+              <tr>
+                <td colspan="8" class="p-12 text-center text-slate-400 font-medium">
+                  <div class="flex flex-col items-center justify-center gap-2">
+                    <svg class="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                    <span>Chưa có dữ liệu. Nhấn <strong>"Tìm Kiếm"</strong> để tải danh sách phim mới nhất.</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Table Footer Bar -->
+        <div class="p-4 bg-slate-50/70 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-2 flex-wrap">
+            <button id="downloadSelectedBottom" class="btn-primary-gradient px-4 py-2 rounded-xl text-white font-semibold text-xs shadow transition-all">Tải Các Mục Đã Chọn</button>
+            <button id="exportSearchBottom" class="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-all border border-slate-300 shadow-sm">Xuất Dữ Liệu CSV</button>
+            <button id="addSample" class="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-all border border-slate-300 shadow-sm">Thêm Dòng Mẫu</button>
+          </div>
+          <div id="tableStatus" class="text-slate-600 font-semibold">Hiện có 0 mục, đã chọn 0 mục</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: MOVIE / SERIES DETAIL -->
+    <section id="detail" class="tab-panel hidden flex-col gap-5">
+      <!-- Input Panel -->
+      <div class="glass-panel rounded-2xl p-5 sm:p-6 shadow-sm">
+        <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-200/80">
+          <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <span class="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-100 text-blue-700 text-xs font-bold">2</span>
+            Tra Cứu Chi Tiết Phim Ngắn Hồng Quả
+          </h2>
+          <span class="text-xs text-slate-500 font-medium">Nhập series_id để lấy thông tin phim và toàn bộ danh sách tập (vid_list)</span>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3 items-end">
+          <div class="flex-1 w-full">
+            <label for="detailSeriesId" class="block text-xs font-semibold text-slate-600 mb-1.5">Mã Series ID hoặc Link Phim</label>
+            <div class="relative">
+              <input id="detailSeriesId" type="text" placeholder="Nhập Series ID (vd: 7673742481694919704) hoặc link https://hongguoduanju.com/detail?series_id=..." class="glass-input font-mono w-full pl-9 pr-3 py-2.5 rounded-xl text-xs sm:text-sm outline-none font-medium">
+              <svg class="w-4 h-4 text-slate-400 absolute left-3 top-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+            </div>
+          </div>
+          <div class="flex gap-2 w-full sm:w-auto">
+            <button id="detailFetchBtn" class="btn-primary-gradient flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-5 rounded-xl text-white font-semibold text-sm shadow-md transition-all whitespace-nowrap">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <span>Xem Chi Tiết</span>
+            </button>
+            <button id="detailSampleBtn" class="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-all border border-slate-300 shadow-sm whitespace-nowrap">
+              Dùng ID Mẫu
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail Content Container -->
+      <div id="detailContainer" class="flex flex-col gap-5">
+        <!-- Empty Placeholder -->
+        <div id="detailEmptyState" class="glass-panel rounded-2xl p-12 text-center text-slate-400 font-medium">
+          <div class="flex flex-col items-center justify-center gap-3 max-w-md mx-auto">
+            <div class="w-16 h-16 rounded-2xl bg-blue-50 text-blue-500 flex items-center justify-center border border-blue-100 shadow-sm">
+              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/></svg>
+            </div>
+            <h3 class="text-base font-bold text-slate-700">Chưa có thông tin phim</h3>
+            <p class="text-xs text-slate-500">Nhập Series ID vào ô phía trên hoặc nhấn <strong>"Chi Tiết"</strong> trên danh sách tìm kiếm để tải toàn bộ thông tin phim.</p>
+          </div>
+        </div>
+
+        <!-- Series Overview Card (Hidden until loaded) -->
+        <div id="detailOverviewCard" class="glass-panel rounded-2xl p-5 sm:p-6 shadow-sm hidden flex-col md:flex-row gap-6 items-start">
+          <div class="w-32 sm:w-44 aspect-[3/4] rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/90 shadow-lg flex-shrink-0 mx-auto md:mx-0">
+            <img id="detailCoverImg" src="" alt="Poster" class="w-full h-full object-cover">
+          </div>
+          <div class="flex-1 flex flex-col gap-3 min-w-0 w-full">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 id="detailSeriesTitle" class="text-xl sm:text-2xl font-bold text-slate-800 leading-tight">Tên Phim</h2>
+                <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <div id="detailCopyIdBadge" class="inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 px-2.5 py-1 rounded-lg text-xs font-mono font-semibold cursor-pointer" title="Nhấp để sao chép Series ID">
+                    <span>ID: <strong id="detailSeriesIdText">-</strong></span>
+                    <svg class="w-3 h-3 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                  </div>
+                  <span id="detailEpisodeCountBadge" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">0 tập</span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 flex-wrap">
+                <button id="detailMergeOnlineBtn" class="btn-primary-gradient py-2 px-4 rounded-xl text-white font-semibold text-xs shadow flex items-center gap-1.5" title="Ghép tất cả các tập trực tiếp từ luồng CDN mạng thành 1 file duy nhất mà không cần tải file lẻ">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <span>⚡ Ghép Trực Tiếp (Không Tải)</span>
+                </button>
+                <button id="detailAddAllToQueueBtn" class="btn-accent-gradient py-2 px-4 rounded-xl text-white font-semibold text-xs shadow flex items-center gap-1.5">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                  <span>Tải Toàn Bộ Tập</span>
+                </button>
+                <a id="detailOpenWebLink" href="#" target="_blank" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                  Trang Gốc
+                </a>
+              </div>
+            </div>
+
+            <!-- Tags -->
+            <div id="detailTagsContainer" class="flex flex-wrap gap-1.5 pt-1"></div>
+
+            <!-- Intro / Description -->
+            <div class="mt-2 p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs sm:text-sm text-slate-600 leading-relaxed max-h-32 overflow-y-auto">
+              <span class="font-bold text-slate-700 block mb-1">Giới thiệu phim:</span>
+              <p id="detailIntroText" class="whitespace-pre-line">-</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Episodes Table Card (Hidden until loaded) -->
+        <div id="detailEpisodesCard" class="glass-panel rounded-2xl overflow-hidden shadow-sm flex-col hidden">
+          <div class="p-4 bg-slate-50/80 border-t border-b border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-bold text-slate-800">Danh Sách Toàn Bộ Tập Phim</h3>
+              <span id="detailSelectedEpisodesBadge" class="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700">0 tập</span>
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap text-xs">
+              <button id="detailMergeSelectedOnlineBtn" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold shadow flex items-center gap-1.5" title="Ghép các tập được chọn trực tiếp thành 1 file">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <span>Ghép Trực Tiếp Tập Chọn</span>
+              </button>
+              <button id="detailAddSelectedEpisodesBtn" class="btn-primary-gradient px-3.5 py-2 rounded-xl text-white font-semibold shadow flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Tải Các Tập Đã Chọn
+              </button>
+              <button id="detailCopyAllVidsBtn" class="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold border border-slate-300 shadow-sm flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                Sao Chép Danh Sách VID
+              </button>
+              <button id="detailExportEpisodesCsvBtn" class="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold border border-slate-300 shadow-sm flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Xuất CSV
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[700px]">
+              <thead>
+                <tr class="bg-blue-50/70 text-slate-700 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th class="p-3.5 w-12 text-center">
+                    <input type="checkbox" id="detailCheckAll" class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer">
+                  </th>
+                  <th class="p-3.5 w-16 text-center">STT</th>
+                  <th class="p-3.5 w-28">Tập Số</th>
+                  <th class="p-3.5">Mã Video (Video ID / VID)</th>
+                  <th class="p-3.5">Tên Phim</th>
+                  <th class="p-3.5 text-center w-40">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="detailEpisodesBody" class="text-sm divide-y divide-slate-200/60 bg-white/40">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: DOWNLOADS QUEUE -->
+    <section id="downloads" class="tab-panel hidden flex-col gap-5">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Left: Bulk Input & Controls -->
+        <div class="lg:col-span-5 flex flex-col gap-4">
+          <div class="glass-panel rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col gap-3">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-200/80">
+              <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                <span class="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-100 text-blue-700 text-xs font-bold">3</span>
+                Nhập Mã Phim Hàng Loạt
+              </h2>
+              <span class="text-xs text-slate-500 font-medium">Drama ID / Video ID</span>
+            </div>
+
+            <div>
+              <label for="bulkIds" class="block text-xs font-semibold text-slate-600 mb-1.5">Dán danh sách ID (mỗi dòng một ID hoặc ngăn cách bởi dấu phẩy):</label>
+              <textarea id="bulkIds" rows="5" placeholder="Ví dụ:&#10;7380000000000000000&#10;7380000000000000001" class="glass-input font-mono w-full p-3.5 rounded-xl text-xs sm:text-sm outline-none resize-y"></textarea>
+            </div>
+
+            <!-- Save Directory in Downloads Tab -->
+            <div class="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80 flex flex-col gap-1.5">
+              <label for="queueSaveDir" class="block text-xs font-semibold text-slate-700 flex items-center justify-between">
+                <span class="flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                  Nơi lưu video tải về:
+                </span>
+                <span class="text-[10px] text-slate-400 font-normal">Mặc định: src/</span>
+              </label>
+              <div class="flex items-center gap-1.5">
+                <input id="queueSaveDir" type="text" placeholder="Để trống để lưu vào thư mục mặc định (src/)..." class="glass-input font-mono flex-1 px-3 py-2 rounded-lg text-xs font-medium outline-none bg-white">
+                <button type="button" id="queueChooseDirBtn" class="px-2.5 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs border border-blue-200 flex items-center gap-1 whitespace-nowrap" title="Chọn thư mục trên máy tính">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>
+                  <span>Chọn</span>
+                </button>
+                <button type="button" id="queueOpenDirBtn" class="px-2.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 flex items-center gap-1 whitespace-nowrap" title="Mở thư mục trong Explorer">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                  <span>Mở</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Batch & Concurrency Settings Row -->
+            <div class="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50/80 border border-slate-200/80">
+              <div>
+                <label for="downloadConcurrency" class="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  Luồng tải song song:
+                </label>
+                <select id="downloadConcurrency" class="glass-input w-full px-2.5 py-1.5 rounded-lg text-xs font-semibold outline-none bg-white">
+                  <option value="1">1 luồng (Tuần tự)</option>
+                  <option value="2">2 luồng song song</option>
+                  <option value="3" selected>3 luồng (Khuyên dùng)</option>
+                  <option value="5">5 luồng song song (Nhanh)</option>
+                  <option value="8">8 luồng (Tốc độ cao)</option>
+                </select>
+              </div>
+              <div>
+                <label for="batchResolveSize" class="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                  Batch Size phân giải:
+                </label>
+                <select id="batchResolveSize" class="glass-input w-full px-2.5 py-1.5 rounded-lg text-xs font-semibold outline-none bg-white">
+                  <option value="5">5 Video / Batch</option>
+                  <option value="10">10 Video / Batch</option>
+                  <option value="20" selected>20 Video / Batch (Chuẩn)</option>
+                  <option value="30">30 Video / Batch</option>
+                  <option value="50">50 Video / Batch</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-amber-50/80 border border-amber-200/70 text-amber-900 text-xs flex items-start gap-2">
+              <svg class="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span>Bạn cũng có thể chọn phim từ bảng tìm kiếm hoặc tab Chi Tiết để thêm toàn bộ tập vào hàng đợi.</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <button id="addBulk" class="btn-accent-gradient py-2.5 px-3 rounded-xl text-white font-semibold text-xs shadow flex items-center justify-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Thêm Vào Hàng Đợi
+              </button>
+              <button id="startQueue" class="btn-primary-gradient py-2.5 px-3 rounded-xl text-white font-semibold text-xs shadow flex items-center justify-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                Bắt Đầu Tải
+              </button>
+              <button id="pauseQueue" class="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center justify-center gap-1.5">
+                <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                Tạm Dừng
+              </button>
+              <button id="clearTasks" class="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold text-xs border border-rose-200 shadow-sm flex items-center justify-center gap-1.5">
+                <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                Xóa Hàng Đợi
+              </button>
+            </div>
+
+            <button id="exportTasks" class="mt-1 w-full py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center justify-center gap-1.5">
+              <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Xuất Danh Sách Link Tải (.csv)
+            </button>
+
+            <!-- Merge Video Trigger Button -->
+            <button id="openMergeModalBtn" class="mt-2 w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:via-indigo-700 hover:to-blue-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5">
+              <svg class="w-4 h-4 sm:w-5 sm:h-5 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2zM7 8h.01M7 12h.01M7 16h.01"/></svg>
+              <span>Ghép Video Đã Tải (FFmpeg)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Task Queue List -->
+        <div class="lg:col-span-7 flex flex-col gap-4">
+          <div class="glass-panel rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col min-h-[460px]">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-200/80 flex-wrap gap-2">
+              <div class="flex items-center gap-2">
+                <h2 class="text-base font-bold text-slate-800">Danh Sách Tiến Trình Tải</h2>
+                <span id="queueCountBadge" class="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700">0 tác vụ</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="openMergeModalHeaderBtn" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs shadow flex items-center gap-1.5 transition-all">
+                  <svg class="w-3.5 h-3.5 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                  <span>Ghép Video</span>
+                </button>
+                <div id="queueStatus" class="text-xs font-semibold text-slate-500">Đang chờ tác vụ</div>
+              </div>
+            </div>
+
+            <!-- Tasks Container -->
+            <div id="taskList" class="flex-1 flex flex-col gap-3 overflow-y-auto max-h-[560px] pr-1">
+              <div class="p-12 text-center text-slate-400 font-medium my-auto">
+                <svg class="w-12 h-12 text-slate-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                <span>Hàng đợi tải xuống đang trống</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 3: DEVICE & SYSTEM SETTINGS -->
+    <section id="settings" class="tab-panel hidden flex-col gap-5">
+      <div class="glass-panel rounded-2xl p-6 shadow-sm max-w-3xl mx-auto w-full">
+        <div class="flex items-center justify-between pb-4 mb-5 border-b border-slate-200/80">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-200 shadow-sm">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            </div>
+            <div>
+              <h2 class="text-base font-bold text-slate-800">Cấu Hình Thiết Bị & Backend</h2>
+              <p class="text-xs text-slate-500">Cài đặt mã định danh thiết bị cho API giải mã video</p>
+            </div>
+          </div>
+          <button id="refreshConfig" class="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Làm Mới
+          </button>
+        </div>
+
+        <!-- Status Card -->
+        <div id="configStatusCard" class="mb-5 p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3">
+          <div class="p-1 rounded-lg bg-amber-100 text-amber-700 mt-0.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xs font-bold text-amber-900 mb-1">Trạng thái cấu hình</h3>
+            <p id="configStatus" class="text-xs text-amber-800">Đang đọc thông tin cấu hình từ hệ thống...</p>
+          </div>
+        </div>
+
+        <!-- Form Inputs -->
+        <div class="flex flex-col gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label for="deviceId" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                device_id <span class="text-rose-500">*</span>
+              </label>
+              <input id="deviceId" type="text" autocomplete="off" placeholder="Ví dụ: 738495029384756..." class="glass-input font-mono w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm outline-none">
+            </div>
+
+            <div>
+              <label for="installId" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                install_id <span class="text-rose-500">*</span>
+              </label>
+              <input id="installId" type="text" autocomplete="off" placeholder="Ví dụ: 829384756102938..." class="glass-input font-mono w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm outline-none">
+            </div>
+          </div>
+
+          <div>
+            <label for="platform" class="block text-xs font-semibold text-slate-700 mb-1.5">Nền tảng thiết bị (Platform)</label>
+            <select id="platform" class="glass-input w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm outline-none font-medium">
+              <option value="android">Android (Khuyên dùng)</option>
+              <option value="ios">iOS</option>
+            </select>
+          </div>
+
+          <div class="pt-3 flex items-center justify-end gap-3 border-t border-slate-200/80">
+            <button id="saveConfig" class="btn-primary-gradient py-2.5 px-6 rounded-xl text-white font-semibold text-sm shadow flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+              Lưu Cấu Hình
+            </button>
+          </div>
+        </div>
+
+        <!-- Instructions Box -->
+        <div class="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-600 text-xs flex flex-col gap-2">
+          <div class="font-bold text-slate-700 flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Hướng dẫn thiết lập:
+          </div>
+          <p>• Dữ liệu cấu hình sẽ được lưu an toàn tại tệp <code>config.json</code> trong thư mục chạy của chương trình.</p>
+          <p>• Bạn có thể sử dụng các công cụ chụp gói tin (Packet Capture) trên Android/iOS để trích xuất <code>device_id</code> và <code>install_id</code> từ ứng dụng Hồng Quả.</p>
+          <p>• Nếu không có cấu hình, việc tìm kiếm vẫn hoạt động bình thường, nhưng chức năng tải video từ Hồng Quả có thể yêu cầu chứng chỉ thiết bị.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="mt-auto py-4 text-center text-xs text-slate-500 font-medium">
+      Trình Tải Phim Ngắn Hồng Quả (Hongguo Downloader) · Bản Việt Hóa & Tối Ưu Giao Diện với Tailwind CSS
+    </footer>
+
+  </div>
+
+  <!-- Video Preview Modal -->
+  <div id="videoModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="glass-panel max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh]">
+      <div class="p-4 bg-slate-100/90 border-b border-slate-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <h3 id="modalVideoTitle" class="font-bold text-slate-800 text-sm truncate max-w-md">Xem Trước Video</h3>
+        </div>
+        <button id="closeVideoModal" class="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="p-4 bg-black flex items-center justify-center">
+        <video id="modalVideoPlayer" controls class="max-h-[60vh] max-w-full rounded-lg outline-none bg-black"></video>
+      </div>
+
+      <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-wrap gap-2 text-xs">
+        <div id="modalVideoInfo" class="text-slate-600 font-medium">Độ phân giải: 1080p | Kích thước: -</div>
+        <div class="flex items-center gap-2">
+          <button id="modalCopyUrl" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            Sao Chép Link
+          </button>
+          <a id="modalOpenExternal" href="#" target="_blank" class="btn-primary-gradient px-3 py-1.5 rounded-lg text-white font-semibold flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+            Mở Trình Duyệt
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Merger Dialog Modal -->
+  <div id="mergeModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-5">
+    <div class="glass-panel max-w-5xl w-full rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col max-h-[92vh] border border-white/80 bg-white/95">
+      
+      <!-- Modal Header -->
+      <div class="p-4 sm:p-5 bg-gradient-to-r from-slate-100 via-blue-50/50 to-indigo-50/50 border-b border-slate-200 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/30 flex-shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2zM7 8h.01M7 12h.01M7 16h.01"/></svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="text-base sm:text-lg font-bold text-slate-800">Ghép Nối Video Đã Tải</h2>
+              <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-purple-100 text-purple-700 border border-purple-200">Tối ưu hóa FFmpeg</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">Tự động quét danh sách video trong thư mục, hỗ trợ cắt phần kết thúc & tùy chỉnh chuẩn xuất video</p>
+          </div>
+        </div>
+        <button id="closeMergeModalBtn" class="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="p-4 sm:p-5 overflow-y-auto flex-1 flex flex-col gap-5">
+        
+        <!-- 1. Folder Selection & Actions Bar -->
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div class="flex-1 flex items-center gap-2 min-w-0">
+            <span class="text-xs font-bold text-slate-700 whitespace-nowrap flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+              Thư mục nguồn:
+            </span>
+            <input id="mergeDirInput" type="text" readonly placeholder="Đang tải đường dẫn thư mục..." class="glass-input font-mono flex-1 px-3 py-1.5 rounded-lg text-xs font-medium outline-none bg-white text-slate-700 truncate">
+          </div>
+          <div class="flex items-center gap-2 flex-wrap self-end md:self-auto">
+            <button id="mergeChooseDirBtn" class="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs border border-blue-200 shadow-sm flex items-center gap-1 transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>
+              <span>Chọn Thư Mục</span>
+            </button>
+            <button id="mergeRefreshBtn" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center gap-1 transition-all">
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span>Làm Mới</span>
+            </button>
+            <button id="mergeOpenDirBtn" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center gap-1 transition-all" title="Mở trong File Explorer">
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+              <span>Mở Explorer</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Video Selection Table with Enhanced Height & Pagination -->
+        <div class="glass-panel rounded-xl shadow-sm flex flex-col border border-slate-200 bg-white/70">
+          
+          <!-- Table Toolbar: Title, Search & Bulk Actions -->
+          <div class="p-3 bg-gradient-to-r from-slate-50 to-blue-50/40 border-b border-slate-200 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                Danh Sách Video Trong Thư Mục
+              </span>
+              <span id="mergeSelectedCount" class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700 border border-blue-200">0 video</span>
+            </div>
+
+            <!-- Search Filter Bar -->
+            <div class="flex-1 max-w-md relative">
+              <input id="mergeSearchInput" type="text" placeholder="Tìm theo tên tập, số tập (vd: tap_1, tap_10, 755...)..." class="glass-input w-full pl-8 pr-7 py-1.5 rounded-lg text-xs outline-none bg-white border border-slate-300">
+              <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <button id="mergeClearSearchBtn" class="hidden absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+            </div>
+            
+            <div class="flex items-center gap-1.5 flex-wrap text-xs self-end lg:self-auto">
+              <button id="mergeSelectAllBtn" class="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold border border-slate-300 shadow-sm transition-all" title="Chọn tất cả video trên mọi trang">Chọn Hết</button>
+              <button id="mergeDeselectAllBtn" class="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold border border-slate-300 shadow-sm transition-all" title="Bỏ chọn tất cả video">Bỏ Chọn</button>
+              <button id="mergeSelectCurrentPageBtn" class="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold border border-blue-200 shadow-sm transition-all" title="Chỉ chọn các video trên trang hiện tại">Chọn Trang Này</button>
+              <button id="mergeSortNaturalBtn" class="px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 font-semibold border border-purple-200 shadow-sm flex items-center gap-1 transition-all" title="Sắp xếp theo thứ tự số tập tự nhiên (1, 2... 10, 11)">
+                <svg class="w-3 h-3 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
+                <span>Xếp Tập (1→N)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Enlarged Table Container: Guaranteed to display 5+ rows comfortably -->
+          <div class="overflow-x-auto overflow-y-auto bg-slate-50/30" style="min-height: 280px; max-height: 520px;">
+            <table class="w-full text-left border-collapse min-w-[700px]">
+              <thead class="sticky top-0 bg-blue-50/95 backdrop-blur-md z-10 text-slate-700 text-xs font-bold uppercase tracking-wider border-b border-slate-200 shadow-sm">
+                <tr>
+                  <th class="py-2.5 px-3 w-10 text-center">
+                    <input type="checkbox" id="mergeCheckAll" checked class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer" title="Chọn / Bỏ chọn tất cả trên trang này">
+                  </th>
+                  <th class="py-2.5 px-3 w-14 text-center">STT</th>
+                  <th class="py-2.5 px-3">Tên Tệp Video</th>
+                  <th class="py-2.5 px-3 text-center w-24">Thời Lượng</th>
+                  <th class="py-2.5 px-3 text-center w-28">Độ Phân Giải</th>
+                  <th class="py-2.5 px-3 text-center w-16">FPS</th>
+                  <th class="py-2.5 px-3 text-center w-24">Dung Lượng</th>
+                  <th class="py-2.5 px-3 text-center w-28">Thứ Tự / Xem</th>
+                </tr>
+              </thead>
+              <tbody id="mergeTableBody" class="text-xs divide-y divide-slate-200/60 bg-white/60">
+                <tr>
+                  <td colspan="8" class="p-12 text-center text-slate-400 font-medium">
+                    Đang quét danh sách video trong thư mục...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination & Summary Footer Bar -->
+          <div class="p-3 bg-slate-50/90 border-t border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 text-xs">
+            <!-- Left: Selection & Net Duration & Estimated Size Summary -->
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <div id="mergeTotalEstimate" class="font-bold text-slate-800">Tổng thời lượng: ~00:00</div>
+                <span class="text-slate-300 hidden sm:inline">•</span>
+                <div id="mergeEstimatedSizeBadge" class="font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1 text-xs shadow-xs">
+                  <svg class="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                  <span>Dung lượng ước tính: <strong id="mergeEstimatedSizeText" class="text-emerald-800">~0 MB</strong></span>
+                </div>
+              </div>
+              <div id="mergePaginationInfo" class="text-[11px] text-slate-500 font-medium">Hiển thị 0 - 0 trong tổng số 0 video</div>
+            </div>
+
+            <!-- Right: Pagination Buttons & Page Size Selector -->
+            <div class="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+              <!-- Page Size -->
+              <div class="flex items-center gap-1 text-slate-600">
+                <span class="text-[11px] text-slate-500">Xem:</span>
+                <select id="mergePageSizeSelect" class="glass-input px-2 py-1 rounded-lg text-xs font-semibold outline-none bg-white border border-slate-300">
+                  <option value="10">10 / trang</option>
+                  <option value="20" selected>20 / trang</option>
+                  <option value="50">50 / trang</option>
+                  <option value="100">100 / trang</option>
+                  <option value="all">Tất cả</option>
+                </select>
+              </div>
+
+              <!-- Page Buttons Container -->
+              <div id="mergePaginationNav" class="flex items-center gap-1">
+                <!-- Dynamically populated buttons -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Merge Settings & Optimization Controls -->
+        <div class="glass-panel p-4 sm:p-5 rounded-xl border border-slate-200/90 flex flex-col gap-4">
+          <div class="flex items-center justify-between pb-2.5 border-b border-slate-200">
+            <h3 class="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2">
+              <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+              Cài Đặt Ghép Video & Xuất Tệp
+            </h3>
+            <span class="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">💎 Giữ nguyên 100% chất lượng gốc</span>
+          </div>
+
+          <!-- Quality Guarantee Callout -->
+          <div class="p-3 rounded-xl bg-gradient-to-r from-blue-50/80 via-indigo-50/80 to-purple-50/80 border border-indigo-100 flex items-center gap-3">
+            <div class="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex-shrink-0 shadow-sm">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            </div>
+            <div class="text-xs text-slate-700 leading-tight">
+              <div class="font-bold text-indigo-950 flex items-center gap-1.5">
+                <span>Chất lượng video nguyên bản (Lossless / Original Fidelity)</span>
+                <span class="px-2 py-0.2 rounded text-[10px] font-extrabold bg-indigo-100 text-indigo-700 uppercase">Chuẩn Gốc</span>
+              </div>
+              <p class="text-[11px] text-slate-600 mt-0.5">Tự động giữ nguyên độ phân giải, FPS, tỷ lệ khung hình và âm thanh của video gốc. Không nén mờ hình, không lệch màu.</p>
+            </div>
+          </div>
+
+          <!-- Cut End Seconds & Video Flip Row (Feature) -->
+          <div class="p-3.5 rounded-xl bg-purple-50/70 border border-purple-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="flex-1">
+              <label for="mergeCutEndSeconds" class="block text-xs font-bold text-purple-900 mb-1 flex items-center gap-1.5">
+                <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"/></svg>
+                Cắt bỏ đoạn cuối mỗi video (giây):
+              </label>
+              <p class="text-[11px] text-purple-700 leading-tight">Tự động cắt bỏ N giây ở phần kết thúc của từng tập phim trước khi nối (loại bỏ outro/quảng cáo). Đặt <strong>0s</strong> để ghép siêu tốc (Stream Copy).</p>
+            </div>
+
+            <div class="flex items-center gap-3 w-full sm:w-auto flex-wrap">
+              <div class="flex items-center gap-2">
+                <div class="relative w-28 sm:w-32">
+                  <input id="mergeCutEndSeconds" type="number" min="0" max="60" step="0.5" value="0" class="glass-input font-bold text-center w-full px-3 py-2 rounded-xl text-sm outline-none bg-white border border-purple-300 text-purple-900 focus:ring-2 focus:ring-purple-400">
+                  <span class="absolute right-2.5 top-2.5 text-xs text-purple-500 font-semibold pointer-events-none">giây</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button type="button" class="cut-preset-btn px-2 py-1.5 rounded-lg bg-white hover:bg-purple-100 text-purple-800 font-bold text-xs border border-purple-200" data-seconds="0">0s</button>
+                  <button type="button" class="cut-preset-btn px-2 py-1.5 rounded-lg bg-white hover:bg-purple-100 text-purple-800 font-bold text-xs border border-purple-200" data-seconds="3">3s</button>
+                  <button type="button" class="cut-preset-btn px-2 py-1.5 rounded-lg bg-white hover:bg-purple-100 text-purple-800 font-bold text-xs border border-purple-200" data-seconds="5">5s</button>
+                </div>
+              </div>
+
+              <!-- Mirror / Horizontal Flip Option -->
+              <div class="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-purple-300 shadow-xs cursor-pointer select-none">
+                <input id="mergeMirror" type="checkbox" class="rounded text-purple-600 focus:ring-purple-400 w-4 h-4 cursor-pointer">
+                <label for="mergeMirror" class="text-xs font-bold text-purple-900 cursor-pointer flex items-center gap-1">
+                  <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                  <span>Lật ngang video (Mirror)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Essential Settings Grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+            
+            <!-- GPU Hardware Acceleration -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label for="mergeGpu" class="text-xs font-bold text-indigo-900 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>
+                  Tăng tốc (GPU):
+                </label>
+              </div>
+              <select id="mergeGpu" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-bold outline-none bg-white border border-indigo-200 text-indigo-900">
+                <option value="nvenc" selected>⚡ NVIDIA NVENC (Mặc định)</option>
+                <option value="qsv">Intel QuickSync (GPU Intel)</option>
+                <option value="amf">AMD AMF (GPU AMD)</option>
+                <option value="cpu">CPU Software (libx264/libx265)</option>
+              </select>
+              <div id="mergeGpuDetectedBadge" class="text-[11px] text-emerald-700 font-bold flex items-center gap-1 mt-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 truncate shadow-xs">
+                <svg class="w-3 h-3 text-emerald-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                <span id="mergeGpuBadgeText" class="truncate">⚡ Mặc định: NVIDIA NVENC</span>
+              </div>
+            </div>
+
+            <!-- Video Codec (H.264 / H.265 HEVC) -->
+            <div>
+              <label for="mergeCodec" class="block text-xs font-bold text-blue-900 mb-1 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                Mã hóa Codec:
+              </label>
+              <select id="mergeCodec" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-bold outline-none bg-white border border-blue-200 text-blue-900">
+                <option value="h264" selected>🎬 H.264 / AVC (Mặc định)</option>
+                <option value="hevc">🚀 H.265 / HEVC (Nén siêu nhỏ)</option>
+              </select>
+            </div>
+
+            <!-- Output Format -->
+            <div>
+              <label for="mergeFormat" class="block text-xs font-semibold text-slate-700 mb-1">Định dạng tệp (Format):</label>
+              <select id="mergeFormat" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-medium outline-none bg-white">
+                <option value="mp4" selected>MP4 (.mp4 - Khuyên dùng)</option>
+                <option value="mkv">MKV (.mkv)</option>
+                <option value="mov">MOV (.mov)</option>
+                <option value="ts">TS (.ts)</option>
+              </select>
+            </div>
+
+            <!-- Video Color Filter -->
+            <div>
+              <label for="mergeColorFilter" class="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-pink-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm5-1.757l4.9-4.9a2 2 0 000-2.828L13.485 5.1a2 2 0 00-2.828 0L10 5.757v8.486zM16 18H9.071l6-6H16a2 2 0 012 2v2a2 2 0 01-2 2z" clip-rule="evenodd"/></svg>
+                Bộ lọc màu sắc (Tùy chọn):
+              </label>
+              <select id="mergeColorFilter" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-medium outline-none bg-white">
+                <option value="none" selected>Giữ nguyên màu gốc</option>
+                <option value="cinematic">🎬 1. Cinematic (Điện ảnh, Vignette)</option>
+                <option value="warm">☀️ 2. Warm / Golden (Tông ấm)</option>
+                <option value="cold">❄️ 3. Cold / Blue (Tông lạnh)</option>
+                <option value="vintage">📼 4. Vintage (Cổ điển)</option>
+                <option value="anime">🎨 5. Anime-like (Rực rỡ)</option>
+                <option value="anime_sharp">✨ 5b. Anime sắc nét (Vivid + Sharp)</option>
+                <option value="chinese_drama_warm">🇨🇳 6. Phim TQ - Điện ảnh ấm</option>
+                <option value="chinese_drama_night">🌙 7. Phim TQ - Đêm lạnh</option>
+                <option value="chinese_romance">🌸 8. Phim TQ - Ngôn tình</option>
+                <option value="custom">🛠️ Tùy chỉnh FFmpeg (-vf)...</option>
+              </select>
+              <input id="mergeCustomColorFilter" type="text" placeholder="Ví dụ: eq=contrast=1.1:saturation=1.2" class="glass-input hidden w-full mt-1.5 px-3 py-1.5 rounded-lg text-xs font-mono outline-none bg-white">
+            </div>
+
+            <!-- Audio Distortion / Effect -->
+            <div>
+              <label for="mergeAudioEffect" class="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-cyan-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clip-rule="evenodd"/></svg>
+                Âm thanh (Tùy chọn):
+              </label>
+              <select id="mergeAudioEffect" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-medium outline-none bg-white">
+                <option value="none" selected>Giữ nguyên âm thanh gốc</option>
+                <option value="anti_copyright">🛡️ Lách bản quyền (+4% Pitch, giữ nhịp)</option>
+                <option value="pitch_up_light">🎵 Tăng cao độ nhẹ (+6% Pitch Up)</option>
+                <option value="pitch_up_chipmunk">🐿️ Giọng cao hoạt hình (+15%)</option>
+                <option value="pitch_down_light">🕶️ Hạ trầm nhẹ (-6% Pitch Down)</option>
+                <option value="pitch_down_deep">🗿 Giọng nam trầm (-12% Deep)</option>
+                <option value="echo_reverb">🏰 Vang vọng không gian (Reverb)</option>
+                <option value="robot_tremolo">🤖 Giọng Robot (Cyber Tremolo)</option>
+                <option value="radio_telephone">📻 Loa đàm thoại (Walkie-Talkie)</option>
+                <option value="bass_boost">💥 Tăng âm trầm (Bass Boost)</option>
+                <option value="custom">🛠️ Tùy chỉnh FFmpeg (-af)...</option>
+              </select>
+              <input id="mergeCustomAudioEffect" type="text" placeholder="Ví dụ: asetrate=44100*1.05,aresample=44100" class="glass-input hidden w-full mt-1.5 px-3 py-1.5 rounded-lg text-xs font-mono outline-none bg-white">
+            </div>
+
+          </div>
+
+          <!-- Output File Name Row -->
+          <div class="pt-2 border-t border-slate-200/80">
+            <label for="mergeOutputName" class="block text-xs font-semibold text-slate-700 mb-1">Tên tệp xuất ra (Output Filename):</label>
+            <div class="flex items-center gap-2">
+              <input id="mergeOutputName" type="text" placeholder="Tự động đặt tên (vd: Phim_Ghep_Full_Tap.mp4)..." class="glass-input font-mono flex-1 px-3.5 py-2 rounded-xl text-xs sm:text-sm outline-none bg-white">
+              <button id="mergeResetNameBtn" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm whitespace-nowrap">
+                Đặt Tên Tự Động
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Real-time Progress Monitor (Visible during/after processing) -->
+        <div id="mergeProgressContainer" class="glass-panel p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 hidden flex-col gap-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <span id="mergeStatusBadge" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span id="mergeStatusBadgeText">Đang xử lý...</span>
+              </span>
+              <span id="mergeStatusMsg" class="text-xs font-medium text-slate-600">Khởi động FFmpeg...</span>
+            </div>
+            <div class="text-xs font-mono font-bold text-indigo-700" id="mergeProgressPercent">0%</div>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden shadow-inner">
+            <div id="mergeProgressBar" class="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 transition-all duration-300" style="width: 0%;"></div>
+          </div>
+
+          <!-- Realtime Stats Grid -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+            <div class="p-2 rounded-lg bg-white/80 border border-slate-200">
+              <span class="text-[10px] text-slate-400 block font-semibold">Tốc độ render:</span>
+              <span id="mergeSpeedText" class="font-bold text-slate-700 font-mono">-</span>
+            </div>
+            <div class="p-2 rounded-lg bg-white/80 border border-slate-200">
+              <span class="text-[10px] text-slate-400 block font-semibold">Dự kiến còn lại:</span>
+              <span id="mergeEtaText" class="font-bold text-slate-700 font-mono">-</span>
+            </div>
+            <div class="p-2 rounded-lg bg-white/80 border border-slate-200">
+              <span class="text-[10px] text-slate-400 block font-semibold">Thời lượng đã xử lý:</span>
+              <span id="mergeDurationText" class="font-bold text-slate-700 font-mono">00:00 / 00:00</span>
+            </div>
+            <div class="p-2 rounded-lg bg-white/80 border border-slate-200">
+              <span class="text-[10px] text-slate-400 block font-semibold">Dung lượng video:</span>
+              <span id="mergeOutputSizeText" class="font-bold text-slate-700 font-mono">-</span>
+            </div>
+          </div>
+
+          <!-- Done Actions Bar (Shown when completed) -->
+          <div id="mergeDoneActions" class="pt-2 border-t border-indigo-200/80 hidden items-center justify-between flex-wrap gap-2">
+            <div class="text-xs font-bold text-emerald-700 flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+              <span>Ghép video thành công! Bạn có thể xem ngay:</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="mergePlayResultBtn" class="btn-primary-gradient px-3 py-1.5 rounded-lg text-white font-semibold text-xs shadow flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                <span>Xem Video</span>
+              </button>
+              <button id="mergeOpenResultFolderBtn" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                <span>Mở Thư Mục</span>
+              </button>
+              <button id="mergeCopyResultPathBtn" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <span>Sao Chép Đường Dẫn</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-wrap gap-3">
+        <div class="text-xs text-slate-500 flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Tự động tối ưu đa luồng CPU và bảo toàn đồng bộ âm thanh - hình ảnh (A/V sync).</span>
+        </div>
+
+        <div class="flex items-center gap-2.5">
+          <button id="mergeCancelBtn" class="hidden px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold text-xs sm:text-sm border border-rose-200 transition-all">
+            Hủy Ghép
+          </button>
+          <button id="mergeCloseBtn" class="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs sm:text-sm border border-slate-300 shadow-sm transition-all">
+            Đóng
+          </button>
+          <button id="mergeStartBtn" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:via-indigo-700 hover:to-blue-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-indigo-500/25 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none disabled:shadow-none">
+            <svg class="w-4 h-4 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span>Bắt Đầu Ghép Video</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast Notification Floating Box -->
+  <div id="toast" class="fixed right-6 bottom-6 z-50 transform transition-all duration-300 ease-out translate-y-24 opacity-0 pointer-events-none">
+    <div class="glass-panel px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-sm font-semibold border border-white/80 bg-white/95 text-slate-800">
+      <div id="toastIcon" class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0">
+        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+      </div>
+      <span id="toastMsg">Thông báo</span>
+    </div>
+  </div>
+
+  <!-- Main Client Application Logic -->
+  <script>
+    const $ = id => document.getElementById(id);
+    let rows = [];
+    let tasks = [];
+    let running = false;
+    let toastTimeout = null;
+
+    // Toast function with modern appearance
+    function toast(msg, type = 'info') {
+      const toastEl = $('toast');
+      const msgEl = $('toastMsg');
+      const iconEl = $('toastIcon');
+      
+      msgEl.textContent = msg;
+      
+      if (type === 'success') {
+        iconEl.className = 'w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0';
+        iconEl.innerHTML = `<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>`;
+      } else if (type === 'error') {
+        iconEl.className = 'w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0';
+        iconEl.innerHTML = `<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>`;
+      } else {
+        iconEl.className = 'w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0';
+        iconEl.innerHTML = `<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>`;
+      }
+
+      toastEl.classList.remove('translate-y-24', 'opacity-0', 'pointer-events-none');
+      toastEl.classList.add('translate-y-0', 'opacity-100', 'pointer-events-auto');
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toastEl.classList.add('translate-y-24', 'opacity-0', 'pointer-events-none');
+        toastEl.classList.remove('translate-y-0', 'opacity-100', 'pointer-events-auto');
+      }, 3200);
+    }
+
+    function safe(v) {
+      return v == null ? '' : String(v);
+    }
+
+    function csvCell(v) {
+      v = safe(v);
+      return /[",\n]/.test(v) ? '"' + v.replaceAll('"', '""') + '"' : v;
+    }
+
+    function downloadText(name, text) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    // Tab Navigation Switcher
+    function setTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        const isActive = btn.dataset.tab === name;
+        btn.classList.toggle('active', isActive);
+        if (isActive) {
+          btn.className = 'tab-btn active flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 whitespace-nowrap bg-white text-blue-700 shadow-sm';
+        } else {
+          btn.className = 'tab-btn flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 whitespace-nowrap text-slate-600 hover:text-slate-900 hover:bg-white/50';
+        }
+      });
+
+      document.querySelectorAll('.tab-panel').forEach(p => {
+        const isPanelActive = p.id === name;
+        p.classList.toggle('active', isPanelActive);
+        p.classList.toggle('hidden', !isPanelActive);
+        if (isPanelActive) {
+          p.classList.remove('hidden');
+          p.classList.add('flex');
+        } else {
+          p.classList.add('hidden');
+          p.classList.remove('flex');
+        }
+      });
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.onclick = () => setTab(btn.dataset.tab);
+    });
+
+    // Table Selection & Management
+    function selectedRows() {
+      return rows.filter(r => r.checked);
+    }
+
+    function updateTableStatus() {
+      const s = selectedRows().length;
+      $('tableStatus').textContent = `Hiện có ${rows.length} mục, đã chọn ${s} mục`;
+      const checkAll = $('checkAll');
+      if (checkAll) {
+        checkAll.checked = rows.length > 0 && s === rows.length;
+      }
+    }
+
+    function copyToClipboard(text, msg = 'Đã sao chép vào bộ nhớ tạm') {
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => {
+        toast(msg, 'success');
+      }).catch(() => {
+        toast('Không thể sao chép: ' + text, 'error');
+      });
+    }
+
+    function renderRows() {
+      const body = $('resultBody');
+      body.innerHTML = '';
+
+      if (!rows.length) {
+        body.innerHTML = `
+          <tr>
+            <td colspan="9" class="p-12 text-center text-slate-400 font-medium">
+              <div class="flex flex-col items-center justify-center gap-2">
+                <svg class="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                <span>Chưa có dữ liệu phim. Nhấn <strong>"Tìm Kiếm"</strong> để tải dữ liệu thực tế.</span>
+              </div>
+            </td>
+          </tr>
+        `;
+        updateTableStatus();
+        return;
+      }
+
+      rows.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-blue-50/50 transition-colors';
+
+        // Checkbox
+        const tdCheck = document.createElement('td');
+        tdCheck.className = 'p-3.5 text-center';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer';
+        cb.checked = !!r.checked;
+        cb.onchange = () => {
+          r.checked = cb.checked;
+          updateTableStatus();
+        };
+        tdCheck.appendChild(cb);
+        tr.appendChild(tdCheck);
+
+        // Index
+        const tdIdx = document.createElement('td');
+        tdIdx.className = 'p-3.5 text-center font-semibold text-slate-500 text-xs';
+        tdIdx.textContent = i + 1;
+        tr.appendChild(tdIdx);
+
+        // Cover Thumbnail (Enlarged)
+        const tdCover = document.createElement('td');
+        tdCover.className = 'p-3 text-center';
+        if (r.cover) {
+          tdCover.innerHTML = `
+            <div class="w-20 h-28 rounded-xl overflow-hidden bg-slate-100 border border-slate-200/90 shadow-md mx-auto flex items-center justify-center relative group cursor-pointer" title="Nhấp để mở chi tiết">
+              <img src="${r.cover}" alt="${safe(r.title)}" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" onerror="this.parentElement.innerHTML='<svg class=\\'w-8 h-8 text-slate-300\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'/></svg>'">
+            </div>
+          `;
+          if (r.source_url) {
+            tdCover.querySelector('div').onclick = () => window.open(r.source_url, '_blank');
+          }
+        } else {
+          tdCover.innerHTML = `
+            <div class="w-20 h-28 rounded-xl bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-300 mx-auto">
+              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+          `;
+        }
+        tr.appendChild(tdCover);
+
+        // Title
+        const tdTitle = document.createElement('td');
+        tdTitle.className = 'p-3.5 font-bold text-slate-800 text-sm max-w-xs';
+        tdTitle.innerHTML = `<span class="hover:text-blue-600 transition-colors" title="${safe(r.title)}">${safe(r.title)}</span>`;
+        tr.appendChild(tdTitle);
+
+        // Drama ID with 1-click copy badge
+        const tdId = document.createElement('td');
+        tdId.className = 'p-3.5 font-mono text-xs text-slate-600';
+        if (r.drama_id) {
+          tdId.innerHTML = `
+            <div class="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg cursor-pointer border border-slate-200" title="Nhấp để sao chép ID">
+              <span class="truncate max-w-[120px] sm:max-w-[160px]">${safe(r.drama_id)}</span>
+              <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            </div>
+          `;
+          tdId.querySelector('div').onclick = () => copyToClipboard(r.drama_id, `Đã sao chép ID: ${r.drama_id}`);
+        } else {
+          tdId.textContent = '-';
+        }
+        tr.appendChild(tdId);
+
+        // Episodes
+        const tdEps = document.createElement('td');
+        tdEps.className = 'p-3.5 text-center font-medium text-slate-700 text-xs whitespace-nowrap';
+        tdEps.textContent = safe(r.episodes || '-');
+        tr.appendChild(tdEps);
+
+        // Categories / Tags
+        const tdCat = document.createElement('td');
+        tdCat.className = 'p-3.5 text-xs';
+        const cats = safe(r.category || r.source).split('/').map(s => s.trim()).filter(Boolean);
+        if (cats.length) {
+          tdCat.innerHTML = `<div class="flex flex-wrap gap-1">${cats.map(c => `<span class="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100 text-[11px] font-medium">${c}</span>`).join('')}</div>`;
+        } else {
+          tdCat.textContent = '-';
+        }
+        tr.appendChild(tdCat);
+
+        // Action Button
+        const tdAction = document.createElement('td');
+        tdAction.className = 'p-3.5 text-center whitespace-nowrap';
+        const actWrap = document.createElement('div');
+        actWrap.className = 'flex items-center justify-center gap-1.5';
+
+        // Detail Button
+        if (r.drama_id) {
+          const detailBtn = document.createElement('button');
+          detailBtn.className = 'px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs border border-blue-200 shadow-sm transition-all flex items-center gap-1';
+          detailBtn.innerHTML = `<svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg> Chi Tiết`;
+          detailBtn.onclick = () => openSeriesDetailTab(r.drama_id);
+          actWrap.appendChild(detailBtn);
+        }
+
+        if (r.downloadable) {
+          const btn = document.createElement('button');
+          btn.className = 'btn-primary-gradient px-2.5 py-1.5 rounded-lg text-white font-semibold text-xs shadow-sm transition-all flex items-center gap-1';
+          btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg> Tải Nhanh`;
+          btn.onclick = () => {
+            addTasks([r]);
+            setTab('downloads');
+            startQueue();
+          };
+          actWrap.appendChild(btn);
+        } else if (r.source_url) {
+          const btn = document.createElement('button');
+          btn.className = 'px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 transition-all flex items-center gap-1';
+          btn.innerHTML = `<svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg> Mở Xem`;
+          btn.onclick = () => window.open(r.source_url, '_blank');
+          actWrap.appendChild(btn);
+        } else {
+          const btn = document.createElement('button');
+          btn.className = 'px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-400 text-xs border border-slate-200 cursor-not-allowed';
+          btn.textContent = 'Không ID';
+          btn.onclick = () => toast('Nguồn này chưa cung cấp Drama ID có thể tải trực tiếp', 'info');
+          actWrap.appendChild(btn);
+        }
+
+        tdAction.appendChild(actWrap);
+        tr.appendChild(tdAction);
+
+        body.appendChild(tr);
+      });
+
+      updateTableStatus();
+    }
+
+    function normalizeRow(x, i = 0) {
+      return {
+        checked: false,
+        author: x.author || x.source || '红果短剧',
+        title: x.title || x.name || `Phim Ngắn ${i + 1}`,
+        drama_id: x.drama_id || x.id || x.video_id || '',
+        episodes: x.episodes || x.episode_count || '-',
+        duration: x.duration || '-',
+        online_time: x.online_time || x.create_time || '-',
+        category: x.category || x.source || '-',
+        cover: x.cover || x.cover_url || x.poster || '',
+        source: x.source || '红果短剧官网',
+        source_url: x.source_url || x.url || '',
+        download_url: x.download_url || '',
+        downloadable: x.downloadable !== false
+      };
+    }
+
+    async function doSearch() {
+      const btn = $('searchBtn');
+      btn.disabled = true;
+      btn.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>Đang Tìm...</span>
+      `;
+
+      try {
+        const resp = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            keyword: $('keyword').value.trim(),
+            page: $('page').value,
+            source: $('source').value,
+            category_filter: $('categoryFilter').value.trim()
+          })
+        });
+
+        const data = await resp.json();
+        rows = (data.items || []).map(normalizeRow);
+        renderRows();
+        
+        const count = rows.length;
+        const msg = data.message || `Tìm kiếm hoàn tất: tìm thấy ${count} kết quả.`;
+        $('searchHint').innerHTML = `
+          <svg class="w-4 h-4 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>${msg}</span>
+        `;
+        toast(count ? `Tìm thấy ${count} phim ngắn` : 'Không có dữ liệu trả về từ nguồn này', count ? 'success' : 'info');
+      } catch (e) {
+        toast('Tìm kiếm thất bại: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <span>Tìm Kiếm</span>
+        `;
+      }
+    }
+
+    function applyFilter() {
+      const keys = $('categoryFilter').value.split(',').map(s => s.trim()).filter(Boolean);
+      if (!keys.length) {
+        renderRows();
+        return;
+      }
+      rows = rows.filter(r => keys.some(k => safe(r.category).includes(k) || safe(r.title).includes(k)));
+      renderRows();
+      toast('Đã lọc theo từ khóa thể loại', 'success');
+    }
+
+    function exportRows() {
+      if (!rows.length) {
+        toast('Không có dữ liệu để xuất file', 'error');
+        return;
+      }
+      const head = ['STT', 'Tác Giả/Nguồn', 'Tên Phim', 'Mã Phim (ID)', 'Số Tập', 'Thời Lượng', 'Ngày Phát Hành', 'Thể Loại', 'Nguồn', 'Link Chi Tiết', 'Link Tải', 'Có Thể Tải'];
+      const lines = [head.join(',')].concat(
+        rows.map((r, i) => [
+          i + 1,
+          r.author || r.source,
+          r.title,
+          r.drama_id,
+          r.episodes,
+          r.duration,
+          r.online_time,
+          r.category,
+          r.source,
+          r.source_url,
+          r.download_url,
+          r.downloadable ? 'Có' : 'Không'
+        ].map(csvCell).join(','))
+      );
+      downloadText('danh_sach_phim_ngan.csv', '\ufeff' + lines.join('\n'));
+      toast('Đã xuất file CSV thành công', 'success');
+    }
+
+    function addSample() {
+      const kw = $('keyword').value.trim() || 'Xuyên Không';
+      rows.push(normalizeRow({
+        author: 'Hồng Quả Tuyển Chọn',
+        title: `Phim Mẫu: ${kw} Quyết Chiến`,
+        drama_id: '7380000000000000000',
+        episodes: '80 tập',
+        duration: 'Khoảng 120 phút',
+        online_time: new Date().toLocaleDateString('vi-VN'),
+        category: 'Xuyên không / Tổng tài / Ngược tâm'
+      }, rows.length));
+      renderRows();
+      toast('Đã thêm 1 dòng phim mẫu vào bảng', 'success');
+    }
+
+    // Queue & Downloads Management
+    function addTasks(items) {
+      let added = 0;
+      let skipped = 0;
+
+      items.forEach(r => {
+        const id = safe(r.drama_id).trim();
+        if (!id || id.includes('Mẫu') || id.includes('示例') || r.downloadable === false) {
+          skipped++;
+          return;
+        }
+        if (tasks.some(t => t.id === id)) return;
+        const seriesId = r.series_id || '';
+        const episode = r.episode || '';
+        const customFilename = r.filename || (seriesId && episode ? `${seriesId}_tap_${episode}.mp4` : (seriesId ? `${seriesId}.mp4` : ''));
+        tasks.push({
+          id,
+          series_id: seriesId,
+          episode: episode,
+          filename: customFilename,
+          title: r.title || `Phim ${id}`,
+          cover: r.cover || '',
+          status: 'pending',
+          progress: 0,
+          msg: 'Đang chờ trong hàng đợi',
+          url: '',
+          meta: {}
+        });
+        added++;
+      });
+
+      renderTasks();
+      updateQueueBadge();
+      toast(`Đã thêm ${added} tác vụ vào hàng đợi${skipped ? ` (bỏ qua ${skipped} mục không hợp lệ)` : ''}`, 'success');
+    }
+
+    function parseBulk() {
+      return $('bulkIds').value
+        .split(/[\n;；]+/)
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(line => {
+          const parts = line.split(/[,，\t\s]+/).filter(Boolean);
+          if (parts.length >= 2) {
+            const sId = parts[0];
+            const ep = parts[1];
+            return {
+              drama_id: sId,
+              series_id: sId,
+              episode: ep,
+              filename: `${sId}_tap_${ep}.mp4`,
+              title: `Phim ${sId} - Tập ${ep}`
+            };
+          }
+          return { drama_id: line, title: `Phim ID: ${line}` };
+        });
+    }
+
+    function saveTasks() {
+      try {
+        localStorage.setItem('duanju_download_tasks_v2', JSON.stringify(tasks));
+      } catch (e) {}
+    }
+
+    function loadTasks() {
+      try {
+        const raw = localStorage.getItem('duanju_download_tasks_v2') || localStorage.getItem('duanju_download_tasks');
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) tasks = arr;
+        }
+      } catch (e) {
+        tasks = [];
+      }
+    }
+
+    function updateQueueBadge() {
+      const count = tasks.filter(t => t.status === 'pending' || t.status === 'running').length;
+      const badge = $('queueBadge');
+      const countBadge = $('queueCountBadge');
+      if (badge) {
+        badge.textContent = count;
+        badge.classList.toggle('hidden', count === 0);
+      }
+      if (countBadge) {
+        countBadge.textContent = `${tasks.length} tác vụ`;
+      }
+    }
+
+    function exportTaskLinks() {
+      if (!tasks.length) {
+        toast('Không có tác vụ tải nào để xuất', 'error');
+        return;
+      }
+      const head = ['STT', 'Tên Phim', 'Mã Phim (ID)', 'Trạng Thái', 'Link Tải Video (MP4)', 'Ghi Chú'];
+      const lines = [head.join(',')].concat(
+        tasks.map((t, i) => [
+          i + 1,
+          t.title,
+          t.id,
+          t.status === 'done' ? 'Hoàn tất' : t.status === 'running' ? 'Đang tải' : t.status === 'error' ? 'Lỗi' : 'Đang chờ',
+          t.url || '',
+          t.msg || ''
+        ].map(csvCell).join(','))
+      );
+      downloadText('danh_sach_link_tai_phim.csv', '\ufeff' + lines.join('\n'));
+      toast('Đã xuất danh sách link tải thành công', 'success');
+    }
+
+    function renderTasks() {
+      saveTasks();
+      updateQueueBadge();
+      const box = $('taskList');
+      box.innerHTML = '';
+
+      if (!tasks.length) {
+        box.innerHTML = `
+          <div class="p-12 text-center text-slate-400 font-medium my-auto">
+            <svg class="w-12 h-12 text-slate-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            <span>Hàng đợi tải xuống đang trống. Nhập ID hoặc chọn phim từ tab Tìm Kiếm.</span>
+          </div>
+        `;
+        $('queueStatus').textContent = 'Đang chờ tác vụ';
+        return;
+      }
+
+      tasks.forEach((t, i) => {
+        const card = document.createElement('div');
+        card.className = 'glass-card p-4 rounded-xl flex gap-3.5 transition-all hover:shadow-md items-start';
+
+        if (t.cover) {
+          const coverBox = document.createElement('div');
+          coverBox.className = 'w-12 h-16 rounded-lg overflow-hidden bg-slate-100 border border-slate-200/80 shadow-sm flex-shrink-0';
+          coverBox.innerHTML = `<img src="${t.cover}" alt="${safe(t.title)}" class="w-full h-full object-cover" loading="lazy" onerror="this.parentElement.style.display='none'">`;
+          card.appendChild(coverBox);
+        }
+
+        const body = document.createElement('div');
+        body.className = 'flex-1 min-w-0 flex flex-col gap-2.5';
+
+        // Header
+        const head = document.createElement('div');
+        head.className = 'flex items-start justify-between gap-3';
+
+        const left = document.createElement('div');
+        left.className = 'flex-1 min-w-0';
+
+        const title = document.createElement('div');
+        title.className = 'font-bold text-slate-800 text-sm truncate';
+        title.textContent = t.title || t.id;
+
+        const idLine = document.createElement('div');
+        idLine.className = 'flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5';
+        idLine.innerHTML = `<span>ID: ${t.id}</span>`;
+
+        left.append(title, idLine);
+
+        // Status Badge
+        const badge = document.createElement('span');
+        badge.className = 'px-2.5 py-1 text-xs font-bold rounded-lg whitespace-nowrap flex items-center gap-1.5 ';
+        if (t.status === 'done') {
+          badge.className += 'bg-emerald-100 text-emerald-700 border border-emerald-200';
+          badge.innerHTML = `<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> Hoàn tất`;
+        } else if (t.status === 'running') {
+          badge.className += 'bg-blue-100 text-blue-700 border border-blue-200 animate-pulse';
+          badge.innerHTML = `<svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Đang tải (${t.progress || 0}%)`;
+        } else if (t.status === 'error') {
+          badge.className += 'bg-rose-100 text-rose-700 border border-rose-200';
+          badge.innerHTML = `<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg> Thất bại`;
+        } else {
+          badge.className += 'bg-slate-100 text-slate-600 border border-slate-200';
+          badge.innerHTML = `<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Đang chờ`;
+        }
+
+        head.append(left, badge);
+
+        // Progress Bar
+        const progressContainer = document.createElement('div');
+        progressContainer.className = 'w-full bg-slate-200/80 rounded-full h-2 overflow-hidden';
+        const progressBar = document.createElement('div');
+        progressBar.className = `h-full rounded-full transition-all duration-300 ${t.status === 'done' ? 'bg-emerald-500' : t.status === 'error' ? 'bg-rose-500' : 'bg-blue-600 progress-bar-animated'}`;
+        progressBar.style.width = `${t.progress || 0}%`;
+        progressContainer.appendChild(progressBar);
+
+        // Message
+        const msg = document.createElement('div');
+        msg.className = `text-xs font-medium ${t.status === 'error' ? 'text-rose-600' : t.status === 'done' ? 'text-emerald-600' : 'text-slate-500'} truncate`;
+        msg.textContent = t.msg || '';
+
+        // Actions
+        const actions = document.createElement('div');
+        actions.className = 'flex items-center gap-2 flex-wrap pt-1';
+
+        if (t.url) {
+          // Play Modal Button
+          const playBtn = document.createElement('button');
+          playBtn.className = 'btn-primary-gradient px-2.5 py-1 rounded-lg text-white font-semibold text-xs shadow-sm flex items-center gap-1';
+          playBtn.innerHTML = `<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg> Xem Video`;
+          playBtn.onclick = () => openVideoModal(t);
+
+          // Copy Link Button
+          const copyBtn = document.createElement('button');
+          copyBtn.className = 'px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 flex items-center gap-1';
+          copyBtn.innerHTML = `<svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Sao Chép Link`;
+          copyBtn.onclick = () => copyToClipboard(t.url, 'Đã sao chép link video MP4');
+
+          actions.append(playBtn, copyBtn);
+        }
+
+        if (t.status === 'error') {
+          const retryBtn = document.createElement('button');
+          retryBtn.className = 'px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold text-xs border border-amber-200 flex items-center gap-1';
+          retryBtn.innerHTML = `<svg class="w-3 h-3 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Thử Lại`;
+          retryBtn.onclick = () => {
+            t.status = 'pending';
+            t.progress = 0;
+            t.msg = 'Đang chờ thử lại';
+            renderTasks();
+            startQueue();
+          };
+          actions.appendChild(retryBtn);
+        }
+
+        // Delete Task Button
+        const delBtn = document.createElement('button');
+        delBtn.className = 'ml-auto px-2 py-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs transition-colors';
+        delBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>`;
+        delBtn.title = 'Xóa tác vụ';
+        delBtn.onclick = () => {
+          tasks.splice(i, 1);
+          renderTasks();
+          toast('Đã xóa tác vụ', 'info');
+        };
+        actions.appendChild(delBtn);
+
+        body.append(head, progressContainer, msg, actions);
+        card.appendChild(body);
+        box.appendChild(card);
+      });
+
+      const doneCount = tasks.filter(t => t.status === 'done').length;
+      const errCount = tasks.filter(t => t.status === 'error').length;
+      const runningCount = tasks.filter(t => t.status === 'running').length;
+      const pendingCount = tasks.filter(t => t.status === 'pending').length;
+
+      $('queueStatus').textContent = `Tổng: ${tasks.length} | Xong: ${doneCount} | Đang chạy: ${runningCount} | Lỗi: ${errCount} | Chờ: ${pendingCount}`;
+    }
+
+    async function startQueue() {
+      if (running) return;
+      running = true;
+      renderTasks();
+
+      const concurrencyInput = $('downloadConcurrency');
+      const batchInput = $('batchResolveSize');
+      const concurrency = parseInt(concurrencyInput ? concurrencyInput.value : '3', 10) || 3;
+      const batchSize = parseInt(batchInput ? batchInput.value : '20', 10) || 20;
+
+      // 1. Batch Resolve: Gather all pending video IDs and pre-resolve models in bulk
+      const pendingVids = Array.from(new Set(tasks.filter(t => t.status === 'pending').map(t => t.id).filter(Boolean)));
+
+      if (pendingVids.length > 1) {
+        $('queueStatus').textContent = `Đang phân giải hàng loạt (${pendingVids.length} tập)...`;
+        for (let i = 0; i < pendingVids.length && running; i += batchSize) {
+          const chunk = pendingVids.slice(i, i + batchSize);
+          try {
+            await fetch('/api/batch_resolve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ video_ids: chunk, batch_size: batchSize })
+            });
+          } catch (e) {
+            console.warn('[batch_resolve] error on chunk', chunk, e);
+          }
+        }
+      }
+
+      // 2. Individual Task Processor
+      async function processSingleTask(t) {
+        if (!running) {
+          if (t.status === 'running') t.status = 'pending';
+          return;
+        }
+
+        t.status = 'running';
+        t.progress = 30;
+        t.msg = 'Đang tải & giải mã luồng video...';
+        renderTasks();
+
+        try {
+          let apiUrl = '/hg?vid=' + encodeURIComponent(t.id);
+          if (t.series_id) apiUrl += '&series_id=' + encodeURIComponent(t.series_id);
+          if (t.episode) apiUrl += '&episode=' + encodeURIComponent(t.episode);
+          if (t.filename) apiUrl += '&filename=' + encodeURIComponent(t.filename);
+          const saveDir = t.save_dir || $('queueSaveDir')?.value.trim() || '';
+          if (saveDir) apiUrl += '&save_dir=' + encodeURIComponent(saveDir);
+          const resp = await fetch(apiUrl);
+          const data = await resp.json();
+
+          if (!resp.ok || data.error) {
+            throw new Error(data.error || ('Lỗi máy chủ HTTP ' + resp.status));
+          }
+
+          t.status = 'done';
+          t.progress = 100;
+          t.url = data.url || '';
+          t.meta = data;
+          t.msg = t.url ? 'Tải & giải mã hoàn tất!' : 'Phân tích hoàn tất';
+        } catch (e) {
+          t.status = 'error';
+          t.progress = 100;
+          t.msg = 'Lỗi: ' + e.message;
+          if (String(e.message).includes('Missing device configuration') || String(e.message).includes('device_id')) {
+            setTab('settings');
+            toast('Vui lòng hoàn tất Cấu Hình Thiết Bị trước khi tải video', 'error');
+          }
+        }
+        renderTasks();
+      }
+
+      // 3. Worker loop: dynamically grabs next pending task
+      async function worker() {
+        while (running) {
+          const nextTask = tasks.find(t => t.status === 'pending');
+          if (!nextTask) break;
+          // Mark immediately to claim
+          nextTask.status = 'running';
+          await processSingleTask(nextTask);
+        }
+      }
+
+      // 4. Run worker pool
+      const workerPromises = [];
+      const pendingCount = tasks.filter(t => t.status === 'pending').length;
+      const numWorkers = Math.min(concurrency, Math.max(pendingCount, 1));
+
+      for (let w = 0; w < numWorkers; w++) {
+        workerPromises.push(worker());
+      }
+
+      await Promise.all(workerPromises);
+
+      running = false;
+      renderTasks();
+      toast('Đã xử lý xong hàng đợi tải xuống', 'info');
+    }
+
+    // Video Preview Modal Handler
+    function openVideoModal(task) {
+      if (!task || !task.url) return;
+      $('modalVideoTitle').textContent = task.title || `Video ID: ${task.id}`;
+      const player = $('modalVideoPlayer');
+      player.src = task.url;
+      player.load();
+      
+      const meta = task.meta || {};
+      const infoParts = [];
+      if (meta.quality) infoParts.push(`Chất lượng: ${meta.quality}`);
+      if (meta.size) infoParts.push(`Kích thước: ${meta.size}`);
+      if (meta.duration) infoParts.push(`Thời lượng: ${meta.duration}`);
+      $('modalVideoInfo').textContent = infoParts.length ? infoParts.join(' | ') : `Link: ${task.url}`;
+
+      $('modalCopyUrl').onclick = () => copyToClipboard(task.url, 'Đã sao chép liên kết video');
+      $('modalOpenExternal').href = task.url;
+
+      $('videoModal').classList.remove('hidden');
+    }
+
+    function closeVideoModal() {
+      const modal = $('videoModal');
+      modal.classList.add('hidden');
+      const player = $('modalVideoPlayer');
+      player.pause();
+      player.src = '';
+    }
+
+    $('closeVideoModal').onclick = closeVideoModal;
+    $('videoModal').onclick = (e) => {
+      if (e.target === $('videoModal')) closeVideoModal();
+    };
+
+    // Directory Picker & Opener Helpers
+    async function chooseDirectory(targetInputId) {
+      try {
+        toast('Đang mở hộp thoại chọn thư mục Windows...', 'info');
+        const resp = await fetch('/api/choose_directory');
+        const data = await resp.json();
+        if (data.ok && data.path) {
+          if (targetInputId && $(targetInputId)) {
+            $(targetInputId).value = data.path;
+          }
+          if (targetInputId === 'queueSaveDir' || targetInputId === 'downloadDir') {
+            localStorage.setItem('hongguo_download_dir', data.path);
+          }
+          toast('Đã chọn thư mục: ' + data.path, 'success');
+          return data.path;
+        } else if (!data.cancelled && data.error) {
+          toast('Không thể mở hộp thoại chọn thư mục: ' + data.error, 'error');
+        }
+      } catch (e) {
+        toast('Lỗi khi chọn thư mục: ' + e.message, 'error');
+      }
+      return null;
+    }
+
+    async function openDirectory(path) {
+      try {
+        const resp = await fetch('/api/open_directory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path || '' })
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          toast('Đã mở thư mục trong File Explorer', 'success');
+        } else {
+          toast('Không thể mở thư mục: ' + (data.error || 'Lỗi không xác định'), 'error');
+        }
+      } catch (e) {
+        toast('Lỗi khi mở thư mục: ' + e.message, 'error');
+      }
+    }
+
+    // System Settings & Config
+    async function loadConfig() {
+      try {
+        const r = await fetch('/api/config');
+        const d = await r.json();
+        const ok = !!d.configured;
+
+        const card = $('configStatusCard');
+        const status = $('configStatus');
+        const indicator = $('configIndicator');
+
+        if (ok) {
+          card.className = 'mb-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-3';
+          card.querySelector('div').className = 'p-1 rounded-lg bg-emerald-100 text-emerald-700 mt-0.5';
+          status.className = 'text-xs text-emerald-800';
+          status.textContent = `Đã cấu hình hợp lệ: device_id=${d.device_id_masked || '-'}, install_id=${d.install_id_masked || '-'}, platform=${d.platform || 'android'}`;
+          if (indicator) {
+            indicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
+          }
+        } else {
+          card.className = 'mb-5 p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3';
+          card.querySelector('div').className = 'p-1 rounded-lg bg-amber-100 text-amber-700 mt-0.5';
+          status.className = 'text-xs text-amber-800';
+          status.textContent = `Chưa cấu hình: Vui lòng nhập device_id và install_id. Tệp lưu: ${d.config_path || 'config.json'}`;
+          if (indicator) {
+            indicator.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+          }
+        }
+
+        if (d.platform) $('platform').value = d.platform;
+        const localSavedDir = localStorage.getItem('hongguo_download_dir');
+        if ($('queueSaveDir')) {
+          $('queueSaveDir').value = localSavedDir || '';
+        }
+      } catch (e) {
+        $('configStatus').textContent = 'Không thể đọc cấu hình: ' + e.message;
+      }
+    }
+
+    async function saveConfig() {
+      const body = {
+        device_id: $('deviceId').value.trim(),
+        install_id: $('installId').value.trim(),
+        platform: $('platform').value || 'android'
+      };
+
+      if (!body.device_id || !body.install_id) {
+        toast('Vui lòng điền đầy đủ device_id và install_id', 'error');
+        return;
+      }
+
+      const saveBtn = $('saveConfig');
+      saveBtn.disabled = true;
+
+      try {
+        const r = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const d = await r.json();
+
+        if (!r.ok || d.error) throw new Error(d.error || ('Lỗi HTTP ' + r.status));
+
+        $('deviceId').value = '';
+        $('installId').value = '';
+        await loadConfig();
+        toast('Đã lưu cấu hình thiết bị thành công', 'success');
+      } catch (e) {
+        toast('Lưu cấu hình thất bại: ' + e.message, 'error');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    }
+
+    // Quick Genre Chip Click Handlers
+    document.querySelectorAll('.chip-tag').forEach(chip => {
+      chip.onclick = () => {
+        const genre = chip.dataset.genre;
+        if (!genre) return;
+        $('keyword').value = genre;
+        $('categoryFilter').value = genre;
+        doSearch();
+      };
+    });
+
+    // Event Bindings
+    $('searchBtn').onclick = doSearch;
+    $('keyword').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doSearch();
+    });
+
+    $('applyFilter').onclick = applyFilter;
+    $('exportSearch').onclick = exportRows;
+    $('exportSearchBottom').onclick = exportRows;
+    $('clearRows').onclick = () => {
+      rows = [];
+      renderRows();
+      toast('Đã xóa toàn bộ bảng kết quả', 'info');
+    };
+
+    $('checkAll').onchange = e => {
+      rows.forEach(r => r.checked = e.target.checked);
+      renderRows();
+    };
+
+    $('downloadSelectedTop').onclick = $('downloadSelectedBottom').onclick = () => {
+      const s = selectedRows();
+      if (!s.length) {
+        toast('Vui lòng tích chọn ít nhất 1 phim', 'error');
+        return;
+      }
+      const queueDir = $('queueSaveDir')?.value.trim() || '';
+      const mapped = s.map(item => ({
+        ...item,
+        save_dir: queueDir
+      }));
+      addTasks(mapped);
+      setTab('downloads');
+    };
+
+    $('addSample').onclick = addSample;
+
+    $('addBulk').onclick = () => {
+      const items = parseBulk();
+      if (!items.length) {
+        toast('Vui lòng nhập ít nhất một ID hợp lệ', 'error');
+        return;
+      }
+      const queueDir = $('queueSaveDir')?.value.trim() || '';
+      const mapped = items.map(item => ({
+        ...item,
+        save_dir: queueDir
+      }));
+      addTasks(mapped);
+      $('bulkIds').value = '';
+    };
+
+    $('startQueue').onclick = startQueue;
+    $('pauseQueue').onclick = () => {
+      running = false;
+      toast('Đã tạm dừng hàng đợi. Tác vụ hiện tại sẽ dừng sau khi xử lý xong.', 'info');
+    };
+
+    $('clearTasks').onclick = () => {
+      running = false;
+      tasks = [];
+      renderTasks();
+      toast('Đã xóa tất cả tác vụ trong hàng đợi', 'info');
+    };
+
+    // ───────────────────────── Chi Tiết Phim (Detail Page Logic) ─────────────────────────
+    let currentDetail = null;
+    let detailEpisodes = [];
+
+    async function fetchSeriesDetail(seriesId) {
+      seriesId = (seriesId || $('detailSeriesId').value || '').trim();
+      if (!seriesId) {
+        toast('Vui lòng nhập Series ID hoặc dán link phim', 'error');
+        return;
+      }
+
+      if (seriesId.includes('series_id=')) {
+        const match = seriesId.match(/series_id=([0-9A-Za-z_-]+)/);
+        if (match) seriesId = match[1];
+      }
+      $('detailSeriesId').value = seriesId;
+
+      const btn = $('detailFetchBtn');
+      btn.disabled = true;
+      btn.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>Đang Tải...</span>
+      `;
+
+      try {
+        const resp = await fetch('/api/detail?series_id=' + encodeURIComponent(seriesId));
+        const data = await resp.json();
+
+        if (!resp.ok || data.error) {
+          throw new Error(data.error || ('Lỗi máy chủ HTTP ' + resp.status));
+        }
+
+        currentDetail = data;
+        detailEpisodes = (data.episodes || []).map(ep => ({
+          ...ep,
+          checked: true
+        }));
+
+        renderSeriesDetail();
+        toast(`Đã tải chi tiết: ${data.series_name} (${detailEpisodes.length} tập)`, 'success');
+      } catch (err) {
+        toast('Không thể tải chi tiết phim: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          <span>Xem Chi Tiết</span>
+        `;
+      }
+    }
+
+    function renderSeriesDetail() {
+      if (!currentDetail) return;
+      const d = currentDetail;
+
+      $('detailEmptyState').classList.add('hidden');
+      $('detailOverviewCard').classList.remove('hidden');
+      $('detailOverviewCard').classList.add('flex');
+      $('detailEpisodesCard').classList.remove('hidden');
+      $('detailEpisodesCard').classList.add('flex');
+
+      // Overview Info
+      $('detailSeriesTitle').textContent = d.series_name || 'Phim Không Tên';
+      $('detailSeriesIdText').textContent = d.series_id || '-';
+      $('detailEpisodeCountBadge').textContent = `${d.episode_cnt || detailEpisodes.length} tập`;
+      $('detailCoverImg').src = d.series_cover || '';
+      $('detailCoverImg').onerror = () => {
+        $('detailCoverImg').src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="1.5"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+      };
+      $('detailIntroText').textContent = d.series_intro || 'Chưa có thông tin giới thiệu cho phim này.';
+
+      if (d.source_url) {
+        $('detailOpenWebLink').href = d.source_url;
+      }
+
+      // Tags
+      const tagsBox = $('detailTagsContainer');
+      tagsBox.innerHTML = '';
+      (d.tags || []).forEach(tag => {
+        const tSpan = document.createElement('span');
+        tSpan.className = 'px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-100';
+        tSpan.textContent = tag;
+        tagsBox.appendChild(tSpan);
+      });
+
+      if ($('detailMergeOnlineBtn')) {
+        $('detailMergeOnlineBtn').onclick = () => {
+          if (!detailEpisodes.length) {
+            toast('Không có tập phim nào để ghép', 'error');
+            return;
+          }
+          const vids = detailEpisodes.map(ep => ep.vid).filter(Boolean);
+          openMergeOnlineModal(vids, d.series_name, d.series_id);
+        };
+      }
+
+      if ($('detailMergeSelectedOnlineBtn')) {
+        $('detailMergeSelectedOnlineBtn').onclick = () => {
+          const selected = detailEpisodes.filter(ep => ep.checked);
+          if (!selected.length) {
+            toast('Vui lòng chọn ít nhất 1 tập phim để ghép', 'error');
+            return;
+          }
+          const vids = selected.map(ep => ep.vid).filter(Boolean);
+          openMergeOnlineModal(vids, d.series_name, d.series_id);
+        };
+      }
+
+      renderDetailEpisodesTable();
+    }
+
+    function renderDetailEpisodesTable() {
+      const body = $('detailEpisodesBody');
+      body.innerHTML = '';
+
+      const checkAll = $('detailCheckAll');
+      const selectedCount = detailEpisodes.filter(e => e.checked).length;
+      $('detailSelectedEpisodesBadge').textContent = `Đã chọn ${selectedCount}/${detailEpisodes.length} tập`;
+      if (checkAll) {
+        checkAll.checked = detailEpisodes.length > 0 && selectedCount === detailEpisodes.length;
+      }
+
+      detailEpisodes.forEach((ep, i) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-blue-50/50 transition-colors';
+
+        // Checkbox
+        const tdCheck = document.createElement('td');
+        tdCheck.className = 'p-3.5 text-center';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer';
+        cb.checked = !!ep.checked;
+        cb.onchange = () => {
+          ep.checked = cb.checked;
+          const sel = detailEpisodes.filter(e => e.checked).length;
+          $('detailSelectedEpisodesBadge').textContent = `Đã chọn ${sel}/${detailEpisodes.length} tập`;
+          if (checkAll) checkAll.checked = sel === detailEpisodes.length;
+        };
+        tdCheck.appendChild(cb);
+        tr.appendChild(tdCheck);
+
+        // Index
+        const tdIdx = document.createElement('td');
+        tdIdx.className = 'p-3.5 text-center font-semibold text-slate-500 text-xs';
+        tdIdx.textContent = i + 1;
+        tr.appendChild(tdIdx);
+
+        // Episode Number
+        const tdEp = document.createElement('td');
+        tdEp.className = 'p-3.5 font-bold text-blue-700 text-xs whitespace-nowrap';
+        tdEp.innerHTML = `<span class="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200/80">Tập ${ep.episode_num || (i + 1)}</span>`;
+        tr.appendChild(tdEp);
+
+        // VID (Video ID)
+        const tdVid = document.createElement('td');
+        tdVid.className = 'p-3.5 font-mono text-xs text-slate-600';
+        tdVid.innerHTML = `
+          <div class="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg cursor-pointer border border-slate-200" title="Nhấp để sao chép VID">
+            <span class="font-bold text-slate-700">${safe(ep.vid)}</span>
+            <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          </div>
+        `;
+        tdVid.querySelector('div').onclick = () => copyToClipboard(ep.vid, `Đã sao chép VID: ${ep.vid}`);
+        tr.appendChild(tdVid);
+
+        // Series Title
+        const tdSeries = document.createElement('td');
+        tdSeries.className = 'p-3.5 font-medium text-slate-700 text-xs truncate max-w-xs';
+        tdSeries.textContent = currentDetail ? currentDetail.series_name : '-';
+        tr.appendChild(tdSeries);
+
+        // Actions
+        const tdActions = document.createElement('td');
+        tdActions.className = 'p-3.5 text-center whitespace-nowrap';
+        const actBox = document.createElement('div');
+        actBox.className = 'flex items-center justify-center gap-1.5';
+
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'btn-primary-gradient px-2.5 py-1 rounded-lg text-white font-semibold text-xs shadow-sm flex items-center gap-1';
+        dlBtn.innerHTML = `<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg> Tải`;
+        dlBtn.onclick = () => {
+          addTasks([{
+            drama_id: ep.vid,
+            series_id: currentDetail ? currentDetail.series_id : ep.series_id,
+            episode: ep.episode_num,
+            filename: `${currentDetail ? currentDetail.series_id : ep.series_id}_tap_${ep.episode_num}.mp4`,
+            title: `${currentDetail ? currentDetail.series_name : 'Phim'} - Tập ${ep.episode_num}`,
+            cover: currentDetail ? currentDetail.series_cover : '',
+            downloadable: true
+          }]);
+          setTab('downloads');
+          startQueue();
+        };
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 flex items-center gap-1';
+        addBtn.innerHTML = `<svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg> Thêm`;
+        addBtn.onclick = () => {
+          addTasks([{
+            drama_id: ep.vid,
+            series_id: currentDetail ? currentDetail.series_id : ep.series_id,
+            episode: ep.episode_num,
+            filename: `${currentDetail ? currentDetail.series_id : ep.series_id}_tap_${ep.episode_num}.mp4`,
+            title: `${currentDetail ? currentDetail.series_name : 'Phim'} - Tập ${ep.episode_num}`,
+            cover: currentDetail ? currentDetail.series_cover : '',
+            downloadable: true
+          }]);
+        };
+
+        actBox.append(dlBtn, addBtn);
+        tdActions.appendChild(actBox);
+        tr.appendChild(tdActions);
+
+        body.appendChild(tr);
+      });
+    }
+
+    function openSeriesDetailTab(seriesId) {
+      setTab('detail');
+      $('detailSeriesId').value = seriesId;
+      fetchSeriesDetail(seriesId);
+    }
+
+    function exportDetailEpisodesCsv() {
+      if (!detailEpisodes.length) {
+        toast('Không có danh sách tập để xuất', 'error');
+        return;
+      }
+      const head = ['STT', 'Tập Số', 'Mã Video (VID)', 'Tên Phim', 'Mã Phim (Series ID)'];
+      const lines = [head.join(',')].concat(
+        detailEpisodes.map((ep, i) => [
+          i + 1,
+          `Tập ${ep.episode_num || (i + 1)}`,
+          ep.vid,
+          currentDetail ? currentDetail.series_name : '',
+          currentDetail ? currentDetail.series_id : ''
+        ].map(csvCell).join(','))
+      );
+      downloadText(`danh_sach_tap_${currentDetail ? currentDetail.series_id : 'phim'}.csv`, '\ufeff' + lines.join('\n'));
+      toast('Đã xuất file CSV danh sách tập thành công', 'success');
+    }
+
+    // Detail Event Bindings
+    $('detailFetchBtn').onclick = () => fetchSeriesDetail();
+    $('detailSeriesId').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') fetchSeriesDetail();
+    });
+    $('detailSampleBtn').onclick = () => {
+      $('detailSeriesId').value = '7673742481694919704';
+      fetchSeriesDetail('7673742481694919704');
+    };
+    $('detailAddAllToQueueBtn').onclick = () => {
+      if (!detailEpisodes.length || !currentDetail) return;
+      const tasksToAdd = detailEpisodes.map(ep => ({
+        drama_id: ep.vid,
+        series_id: currentDetail.series_id,
+        episode: ep.episode_num,
+        filename: `${currentDetail.series_id}_tap_${ep.episode_num}.mp4`,
+        title: `${currentDetail.series_name} - Tập ${ep.episode_num}`,
+        cover: currentDetail.series_cover,
+        downloadable: true
+      }));
+      addTasks(tasksToAdd);
+      setTab('downloads');
+    };
+    $('detailAddSelectedEpisodesBtn').onclick = () => {
+      const sel = detailEpisodes.filter(e => e.checked);
+      if (!sel.length || !currentDetail) {
+        toast('Vui lòng tích chọn ít nhất 1 tập phim', 'error');
+        return;
+      }
+      const tasksToAdd = sel.map(ep => ({
+        drama_id: ep.vid,
+        series_id: currentDetail.series_id,
+        episode: ep.episode_num,
+        filename: `${currentDetail.series_id}_tap_${ep.episode_num}.mp4`,
+        title: `${currentDetail.series_name} - Tập ${ep.episode_num}`,
+        cover: currentDetail.series_cover,
+        downloadable: true
+      }));
+      addTasks(tasksToAdd);
+      setTab('downloads');
+    };
+    $('detailCheckAll').onchange = (e) => {
+      detailEpisodes.forEach(ep => ep.checked = e.target.checked);
+      renderDetailEpisodesTable();
+    };
+    $('detailCopyAllVidsBtn').onclick = () => {
+      if (!detailEpisodes.length) return;
+      const vids = detailEpisodes.map(ep => ep.vid).join('\n');
+      copyToClipboard(vids, `Đã sao chép ${detailEpisodes.length} mã VID vào bộ nhớ tạm`);
+    };
+    $('detailExportEpisodesCsvBtn').onclick = exportDetailEpisodesCsv;
+
+    // Directory Selector Button & Input Event Bindings
+    if ($('queueChooseDirBtn')) $('queueChooseDirBtn').onclick = () => chooseDirectory('queueSaveDir');
+    if ($('queueOpenDirBtn')) $('queueOpenDirBtn').onclick = () => openDirectory($('queueSaveDir')?.value.trim());
+
+    if ($('queueSaveDir')) {
+      $('queueSaveDir').addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        if (val) {
+          localStorage.setItem('hongguo_download_dir', val);
+        } else {
+          localStorage.removeItem('hongguo_download_dir');
+        }
+      });
+    }
+
+    $('exportTasks').onclick = exportTaskLinks;
+    $('saveConfig').onclick = saveConfig;
+    $('refreshConfig').onclick = () => {
+      loadConfig();
+      toast('Đã làm mới trạng thái cấu hình', 'info');
+    };
+
+    // ───────────────────────── Ghép Video (Video Merger Client Logic with Pagination & Search) ─────────────────────────
+    let mergeVideos = [];
+    let currentMergeTaskId = null;
+    let mergeEventSource = null;
+    let mergePollInterval = null;
+    let lastResultFilePath = '';
+
+    let mergeCurrentPage = 1;
+    let mergePageSize = 20;
+    let mergeSearchQuery = '';
+
+    function formatSecondsToTime(sec) {
+      if (!sec || sec <= 0) return '00:00';
+      sec = Math.round(sec);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) {
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function setMergeButtonLoading(isLoading) {
+      const btn = $('mergeStartBtn');
+      if (!btn) return;
+      if (isLoading) {
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed', 'pointer-events-none', 'shadow-none');
+        btn.innerHTML = `
+          <svg class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          <span>Đang Ghép Video...</span>
+        `;
+      } else {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50', 'cursor-not-allowed', 'pointer-events-none', 'shadow-none');
+        btn.innerHTML = `
+          <svg class="w-4 h-4 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Bắt Đầu Ghép Video</span>
+        `;
+      }
+    }
+
+    let detectedGpuInfo = null;
+    let isOnlineMergeMode = false;
+    let onlineMergeVids = [];
+    let onlineMergeSeriesTitle = '';
+
+    async function fetchDetectedGpu() {
+      const badgeText = $('mergeGpuBadgeText');
+      const gpuSelect = $('mergeGpu');
+      if (gpuSelect && !gpuSelect.value) {
+        gpuSelect.value = 'nvenc';
+      }
+      if (badgeText) {
+        badgeText.textContent = '⚡ NVIDIA NVENC (GPU Nvidia) - Render siêu tốc';
+        badgeText.parentElement.className = 'text-[11px] text-emerald-700 font-bold flex items-center gap-1 mt-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 truncate shadow-xs';
+      }
+    }
+
+    async function openMergeOnlineModal(vids, seriesTitle, seriesId) {
+      if (!vids || !vids.length) {
+        toast('Vui lòng chọn ít nhất 1 tập phim để ghép', 'error');
+        return;
+      }
+      isOnlineMergeMode = true;
+      onlineMergeVids = vids;
+      onlineMergeSeriesTitle = seriesTitle || 'Phim_Ngan';
+
+      const modal = $('mergeModal');
+      modal.classList.remove('hidden');
+
+      const savedDir = $('queueSaveDir')?.value.trim() || localStorage.getItem('hongguo_download_dir') || '';
+      $('mergeDirInput').value = savedDir;
+
+      $('mergeProgressContainer').classList.add('hidden');
+      $('mergeProgressContainer').classList.remove('flex');
+      $('mergeDoneActions').classList.add('hidden');
+      $('mergeDoneActions').classList.remove('flex');
+      $('mergeCancelBtn').classList.add('hidden');
+      if (!currentMergeTaskId) setMergeButtonLoading(false);
+
+      const tbody = $('mergeTableBody');
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" class="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-xl text-center">
+            <div class="flex flex-col items-center justify-center gap-2">
+              <span class="px-3 py-1 rounded-full bg-blue-600 text-white font-bold text-xs shadow-sm">⚡ GHÉP TRỰC TIẾP TRỰC TUYẾN (KHÔNG TẢI FILE LẺ)</span>
+              <h4 class="text-sm font-bold text-slate-800">Đã chọn ${vids.length} tập phim để ghép nối trực tiếp từ CDN mạng</h4>
+              <p class="text-xs text-slate-600 max-w-xl">Hệ thống sẽ giải mã luồng và ghép nối trực tiếp bằng GPU NVENC thành 1 file MP4 duy nhất. <strong>Không ghi bất kỳ file tập lẻ nào xuống đĩa cứng!</strong></p>
+            </div>
+          </td>
+        </tr>
+      `;
+
+      if ($('mergeSelectedCount')) {
+        $('mergeSelectedCount').textContent = `${vids.length} tập trực tuyến`;
+      }
+      if ($('mergeTotalEstimate')) {
+        $('mergeTotalEstimate').textContent = `Tổng thời lượng: ~${Math.round(vids.length * 1.5)} phút (ước tính)`;
+      }
+
+      const format = $('mergeFormat')?.value || 'mp4';
+      const cleanTitle = (onlineMergeSeriesTitle || 'Phim_Ghep').replace(/[\\/*?:"<>|]/g, '_').replace(/\s+/g, '_');
+      $('mergeOutputName').value = `Phim_Ghep_${cleanTitle}_${vids.length}_tap.${format}`;
+
+      fetchDetectedGpu();
+    }
+
+    async function openMergeModal() {
+      isOnlineMergeMode = false;
+      onlineMergeVids = [];
+
+      const modal = $('mergeModal');
+      modal.classList.remove('hidden');
+      
+      const savedDir = $('queueSaveDir')?.value.trim() || localStorage.getItem('hongguo_download_dir') || '';
+      $('mergeDirInput').value = savedDir;
+      
+      $('mergeProgressContainer').classList.add('hidden');
+      $('mergeProgressContainer').classList.remove('flex');
+      $('mergeDoneActions').classList.add('hidden');
+      $('mergeDoneActions').classList.remove('flex');
+      $('mergeCancelBtn').classList.add('hidden');
+      if (!currentMergeTaskId) setMergeButtonLoading(false);
+      
+      mergeCurrentPage = 1;
+      mergeSearchQuery = '';
+      if ($('mergeSearchInput')) $('mergeSearchInput').value = '';
+      if ($('mergeClearSearchBtn')) $('mergeClearSearchBtn').classList.add('hidden');
+
+      fetchDetectedGpu();
+      await fetchMergeVideosList(savedDir);
+      generateDefaultOutputName();
+    }
+
+    function closeMergeModal() {
+      const modal = $('mergeModal');
+      modal.classList.add('hidden');
+    }
+
+    async function fetchMergeVideosList(dirPath) {
+      const tbody = $('mergeTableBody');
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" class="p-12 text-center text-slate-400 font-medium">
+            <div class="flex items-center justify-center gap-2">
+              <svg class="w-4 h-4 animate-spin text-blue-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              <span>Đang quét danh sách video trong thư mục...</span>
+            </div>
+          </td>
+        </tr>
+      `;
+
+      try {
+        let url = '/api/merge/list_videos';
+        if (dirPath) url += '?dir=' + encodeURIComponent(dirPath);
+        const resp = await fetch(url);
+        const data = await resp.json();
+
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.error || ('Lỗi HTTP ' + resp.status));
+        }
+
+        $('mergeDirInput').value = data.dir || dirPath || '';
+        mergeVideos = (data.videos || []).map(v => ({
+          ...v,
+          checked: true
+        }));
+
+        mergeCurrentPage = 1;
+        renderMergeVideoList();
+        generateDefaultOutputName();
+      } catch (err) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="p-8 text-center text-rose-500 font-semibold">
+              Không thể quét video: ${err.message}
+            </td>
+          </tr>
+        `;
+        toast('Lỗi khi quét thư mục video: ' + err.message, 'error');
+      }
+    }
+
+    function getFilteredMergeVideos() {
+      if (!mergeSearchQuery) return mergeVideos;
+      const q = mergeSearchQuery.toLowerCase().trim();
+      return mergeVideos.filter(v => (v.filename || '').toLowerCase().includes(q));
+    }
+
+    function naturalSortMergeVideos() {
+      mergeVideos.sort((a, b) => {
+        const keyA = (a.filename || '').replace(/(\d+)/g, m => m.padStart(10, '0'));
+        const keyB = (b.filename || '').replace(/(\d+)/g, m => m.padStart(10, '0'));
+        return keyA.localeCompare(keyB);
+      });
+      renderMergeVideoList();
+      generateDefaultOutputName();
+      toast('Đã sắp xếp danh sách theo thứ tự tập tự nhiên (1→N)', 'info');
+    }
+
+    function moveMergeVideo(globalIdx, targetGlobalIdx) {
+      if (targetGlobalIdx < 0 || targetGlobalIdx >= mergeVideos.length) return;
+      const item = mergeVideos.splice(globalIdx, 1)[0];
+      mergeVideos.splice(targetGlobalIdx, 0, item);
+      renderMergeVideoList();
+      generateDefaultOutputName();
+    }
+
+    function calculateEstimatedOutputSize(selected, netSec, totalSec, totalBytes) {
+      if (!selected.length || totalSec <= 0 || netSec <= 0) return 0;
+      // Do giữ nguyên 100% chất lượng gốc nên dung lượng tỷ lệ chuẩn xác với thời lượng sau khi trừ đoạn kết
+      const ratio = Math.min(1.0, Math.max(0.01, netSec / totalSec));
+      return Math.round(totalBytes * ratio);
+    }
+
+    function updateMergeSelectionSummary() {
+      const selected = mergeVideos.filter(v => v.checked);
+      const totalSec = selected.reduce((sum, v) => sum + (v.duration || 0), 0);
+      const totalBytes = selected.reduce((sum, v) => sum + (v.size || 0), 0);
+      const cutSec = parseFloat($('mergeCutEndSeconds')?.value) || 0;
+      const netSec = Math.max(0, totalSec - (selected.length * cutSec));
+
+      if ($('mergeSelectedCount')) {
+        $('mergeSelectedCount').textContent = `${selected.length}/${mergeVideos.length} video (${formatBytes(totalBytes)})`;
+      }
+      if ($('mergeTotalEstimate')) {
+        $('mergeTotalEstimate').textContent = `Tổng thời lượng: ~${formatSecondsToTime(netSec)}${cutSec > 0 ? ` (đã trừ ${cutSec}s x ${selected.length} tập)` : ''}`;
+      }
+
+      const estBytes = calculateEstimatedOutputSize(selected, netSec, totalSec, totalBytes);
+      if ($('mergeEstimatedSizeText')) {
+        $('mergeEstimatedSizeText').textContent = selected.length ? `~${formatBytes(estBytes)}` : '~0 MB';
+      }
+
+      // CheckAll on current page
+      const filtered = getFilteredMergeVideos();
+      const pageSize = mergePageSize === 'all' ? filtered.length : parseInt(mergePageSize, 10);
+      const startIndex = (mergeCurrentPage - 1) * pageSize;
+      const pageItems = filtered.slice(startIndex, startIndex + pageSize);
+      const checkAll = $('mergeCheckAll');
+      if (checkAll) {
+        checkAll.checked = pageItems.length > 0 && pageItems.every(v => v.checked);
+      }
+    }
+
+    function generateDefaultOutputName() {
+      const selected = mergeVideos.filter(v => v.checked);
+      const format = $('mergeFormat')?.value || 'mp4';
+      if (!selected.length) {
+        const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        $('mergeOutputName').value = `Phim_Ghep_${todayStr}.${format}`;
+        return;
+      }
+
+      const first = selected[0].filename || '';
+      const match = first.match(/^(\d{15,22})/);
+      if (match) {
+        const seriesId = match[1];
+        const epCount = selected.length;
+        $('mergeOutputName').value = `Phim_Ghep_${seriesId}_${epCount}_tap.${format}`;
+      } else {
+        const cleanName = first.replace(/\.[^/.]+$/, '').replace(/_tap_\d+/i, '').replace(/_ep_\d+/i, '');
+        $('mergeOutputName').value = `Phim_Ghep_${cleanName || 'Video'}_${selected.length}_tap.${format}`;
+      }
+    }
+
+    function renderMergePagination(totalItems, filteredItemsCount) {
+      const nav = $('mergePaginationNav');
+      const info = $('mergePaginationInfo');
+      if (!nav || !info) return;
+
+      nav.innerHTML = '';
+      const pageSize = mergePageSize === 'all' ? filteredItemsCount : parseInt(mergePageSize, 10);
+      const totalPages = Math.max(1, Math.ceil(filteredItemsCount / pageSize));
+
+      if (mergeCurrentPage > totalPages) mergeCurrentPage = totalPages;
+      if (mergeCurrentPage < 1) mergeCurrentPage = 1;
+
+      const startIdx = filteredItemsCount === 0 ? 0 : (mergeCurrentPage - 1) * pageSize + 1;
+      const endIdx = Math.min(filteredItemsCount, mergeCurrentPage * pageSize);
+      info.textContent = `Hiển thị ${startIdx} - ${endIdx} trong tổng số ${totalItems} video${mergeSearchQuery ? ` (lọc ${filteredItemsCount})` : ''}`;
+
+      if (totalPages <= 1 && mergePageSize === 'all') {
+        return;
+      }
+
+      // Prev buttons
+      const firstBtn = document.createElement('button');
+      firstBtn.className = `px-2 py-1 rounded-lg text-xs font-semibold border ${mergeCurrentPage === 1 ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'}`;
+      firstBtn.innerHTML = '&laquo;';
+      firstBtn.title = 'Trang đầu';
+      firstBtn.disabled = mergeCurrentPage === 1;
+      firstBtn.onclick = () => { mergeCurrentPage = 1; renderMergeVideoList(); };
+      nav.appendChild(firstBtn);
+
+      const prevBtn = document.createElement('button');
+      prevBtn.className = `px-2.5 py-1 rounded-lg text-xs font-semibold border ${mergeCurrentPage === 1 ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'}`;
+      prevBtn.innerHTML = '&lsaquo;';
+      prevBtn.title = 'Trang trước';
+      prevBtn.disabled = mergeCurrentPage === 1;
+      prevBtn.onclick = () => { if (mergeCurrentPage > 1) { mergeCurrentPage--; renderMergeVideoList(); } };
+      nav.appendChild(prevBtn);
+
+      // Page numbers (smart window of 5 pages)
+      let pStart = Math.max(1, mergeCurrentPage - 2);
+      let pEnd = Math.min(totalPages, pStart + 4);
+      if (pEnd - pStart < 4) {
+        pStart = Math.max(1, pEnd - 4);
+      }
+
+      for (let p = pStart; p <= pEnd; p++) {
+        const pBtn = document.createElement('button');
+        const isCurrent = p === mergeCurrentPage;
+        pBtn.className = `px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${isCurrent ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'}`;
+        pBtn.textContent = p;
+        pBtn.onclick = () => { mergeCurrentPage = p; renderMergeVideoList(); };
+        nav.appendChild(pBtn);
+      }
+
+      // Next buttons
+      const nextBtn = document.createElement('button');
+      nextBtn.className = `px-2.5 py-1 rounded-lg text-xs font-semibold border ${mergeCurrentPage === totalPages ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'}`;
+      nextBtn.innerHTML = '&rsaquo;';
+      nextBtn.title = 'Trang sau';
+      nextBtn.disabled = mergeCurrentPage === totalPages;
+      nextBtn.onclick = () => { if (mergeCurrentPage < totalPages) { mergeCurrentPage++; renderMergeVideoList(); } };
+      nav.appendChild(nextBtn);
+
+      const lastBtn = document.createElement('button');
+      lastBtn.className = `px-2 py-1 rounded-lg text-xs font-semibold border ${mergeCurrentPage === totalPages ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'}`;
+      lastBtn.innerHTML = '&raquo;';
+      lastBtn.title = 'Trang cuối';
+      lastBtn.disabled = mergeCurrentPage === totalPages;
+      lastBtn.onclick = () => { mergeCurrentPage = totalPages; renderMergeVideoList(); };
+      nav.appendChild(lastBtn);
+    }
+
+    function renderMergeVideoList() {
+      const tbody = $('mergeTableBody');
+      tbody.innerHTML = '';
+
+      if (!mergeVideos.length) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="p-12 text-center text-slate-400 font-medium">
+              Không tìm thấy video nào trong thư mục này. Hãy tải một số tập phim hoặc chọn thư mục khác.
+            </td>
+          </tr>
+        `;
+        updateMergeSelectionSummary();
+        renderMergePagination(0, 0);
+        return;
+      }
+
+      const filtered = getFilteredMergeVideos();
+
+      if (!filtered.length) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="p-12 text-center text-slate-400 font-medium">
+              Không có video nào khớp với từ khóa tìm kiếm "${mergeSearchQuery}".
+            </td>
+          </tr>
+        `;
+        updateMergeSelectionSummary();
+        renderMergePagination(mergeVideos.length, 0);
+        return;
+      }
+
+      const pageSize = mergePageSize === 'all' ? filtered.length : parseInt(mergePageSize, 10);
+      const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+      if (mergeCurrentPage > totalPages) mergeCurrentPage = totalPages;
+
+      const startIndex = (mergeCurrentPage - 1) * pageSize;
+      const pageItems = filtered.slice(startIndex, startIndex + pageSize);
+
+      pageItems.forEach((v) => {
+        const globalIdx = mergeVideos.indexOf(v);
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-blue-50/60 transition-colors' + (v.checked ? '' : ' opacity-60 bg-slate-50/40');
+
+        // Checkbox
+        const tdCheck = document.createElement('td');
+        tdCheck.className = 'py-2.5 px-3 text-center';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer';
+        cb.checked = !!v.checked;
+        cb.onchange = () => {
+          v.checked = cb.checked;
+          renderMergeVideoList();
+          generateDefaultOutputName();
+        };
+        tdCheck.appendChild(cb);
+        tr.appendChild(tdCheck);
+
+        // Index (global sequence number)
+        const tdIdx = document.createElement('td');
+        tdIdx.className = 'py-2.5 px-3 text-center font-bold text-slate-500';
+        tdIdx.textContent = globalIdx + 1;
+        tr.appendChild(tdIdx);
+
+        // Filename
+        const tdName = document.createElement('td');
+        tdName.className = 'py-2.5 px-3 font-semibold text-slate-800 truncate max-w-xs sm:max-w-md';
+        tdName.innerHTML = `
+          <div class="flex items-center gap-1.5" title="${v.filename}">
+            <span class="truncate">${v.filename}</span>
+            <button type="button" class="text-slate-400 hover:text-blue-600 p-0.5" title="Sao chép tên tệp" onclick="copyToClipboard('${v.filename}', 'Đã sao chép tên tệp')">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            </button>
+          </div>
+        `;
+        tr.appendChild(tdName);
+
+        // Duration
+        const tdDur = document.createElement('td');
+        tdDur.className = 'py-2.5 px-3 text-center font-mono font-medium text-slate-700 whitespace-nowrap';
+        tdDur.textContent = v.duration_str || '00:00';
+        tr.appendChild(tdDur);
+
+        // Resolution
+        const tdRes = document.createElement('td');
+        tdRes.className = 'py-2.5 px-3 text-center font-mono text-slate-600 whitespace-nowrap';
+        tdRes.textContent = v.resolution || '-';
+        tr.appendChild(tdRes);
+
+        // FPS
+        const tdFps = document.createElement('td');
+        tdFps.className = 'py-2.5 px-3 text-center font-mono text-slate-600 whitespace-nowrap';
+        tdFps.textContent = v.fps ? `${v.fps}` : '-';
+        tr.appendChild(tdFps);
+
+        // Size
+        const tdSize = document.createElement('td');
+        tdSize.className = 'py-2.5 px-3 text-center font-mono font-medium text-slate-700 whitespace-nowrap';
+        tdSize.textContent = v.size_str || '0 B';
+        tr.appendChild(tdSize);
+
+        // Reorder actions & Preview
+        const tdAct = document.createElement('td');
+        tdAct.className = 'py-2.5 px-3 text-center whitespace-nowrap';
+        tdAct.innerHTML = `
+          <div class="flex items-center justify-center gap-1">
+            <button type="button" class="btn-move-up p-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all" title="Di chuyển lên trên" ${globalIdx === 0 ? 'disabled style="opacity:0.3;cursor:not-allowed;"' : ''}>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+            </button>
+            <button type="button" class="btn-move-down p-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all" title="Di chuyển xuống dưới" ${globalIdx === mergeVideos.length - 1 ? 'disabled style="opacity:0.3;cursor:not-allowed;"' : ''}>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <button type="button" class="btn-preview-video p-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 transition-all" title="Xem trước video này">
+              <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+            </button>
+          </div>
+        `;
+
+        tdAct.querySelector('.btn-move-up').onclick = () => moveMergeVideo(globalIdx, globalIdx - 1);
+        tdAct.querySelector('.btn-move-down').onclick = () => moveMergeVideo(globalIdx, globalIdx + 1);
+        tdAct.querySelector('.btn-preview-video').onclick = () => {
+          openVideoModal({
+            title: v.filename,
+            url: `/api/video_file?path=${encodeURIComponent(v.path)}`,
+            meta: {
+              quality: v.resolution,
+              size: v.size_str,
+              duration: v.duration_str
+            }
+          });
+        };
+
+        tr.appendChild(tdAct);
+        tbody.appendChild(tr);
+      });
+
+      updateMergeSelectionSummary();
+      renderMergePagination(mergeVideos.length, filtered.length);
+    }
+
+    async function startVideoMerge() {
+      const cutSec = parseFloat($('mergeCutEndSeconds')?.value) || 0;
+      const mirror = $('mergeMirror')?.checked || false;
+      const colorFilter = $('mergeColorFilter')?.value || 'none';
+      const customColorFilter = $('mergeCustomColorFilter')?.value.trim() || '';
+      const audioEffect = $('mergeAudioEffect')?.value || 'none';
+      const customAudioEffect = $('mergeCustomAudioEffect')?.value.trim() || '';
+      const codec = $('mergeCodec')?.value || 'h264';
+      const format = $('mergeFormat')?.value || 'mp4';
+      const outputDir = $('mergeDirInput')?.value.trim() || '';
+      const outputName = $('mergeOutputName')?.value.trim() || `Phim_Ghep_${Date.now()}.${format}`;
+
+      if (isOnlineMergeMode) {
+        if (!onlineMergeVids.length) {
+          toast('Không có tập phim trực tuyến nào được chọn', 'error');
+          return;
+        }
+
+        // UI state: running
+        $('mergeProgressContainer').classList.remove('hidden');
+        $('mergeProgressContainer').classList.add('flex');
+        $('mergeDoneActions').classList.add('hidden');
+        $('mergeDoneActions').classList.remove('flex');
+        $('mergeCancelBtn').classList.remove('hidden');
+        setMergeButtonLoading(true);
+
+        $('mergeProgressBar').style.width = '0%';
+        $('mergeProgressPercent').textContent = '0%';
+        $('mergeSpeedText').textContent = '-';
+        $('mergeEtaText').textContent = '-';
+        $('mergeDurationText').textContent = '00:00 / --:--';
+        $('mergeOutputSizeText').textContent = '-';
+        $('mergeStatusMsg').textContent = `Đang giải mã luồng CDN (${onlineMergeVids.length} tập) & ghép trực tiếp...`;
+        $('mergeStatusBadgeText').textContent = 'Đang ghép trực tuyến...';
+        $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5';
+
+        try {
+          const resp = await fetch('/api/merge/start_online', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              video_ids: onlineMergeVids,
+              cut_end_seconds: cutSec,
+              mirror,
+              quality: 'original',
+              resolution: 'original',
+              fps: 'original',
+              bitrate: 'auto',
+              codec,
+              gpu: $('mergeGpu')?.value || 'nvenc',
+              color_filter: colorFilter,
+              custom_color_filter: customColorFilter,
+              audio_effect: audioEffect,
+              custom_audio_effect: customAudioEffect,
+              format,
+              output_dir: outputDir,
+              output_name: outputName,
+            })
+          });
+
+          const data = await resp.json();
+          if (!resp.ok || !data.ok || !data.task_id) {
+            throw new Error(data.error || 'Lỗi không thể bắt đầu tác vụ ghép trực tuyến');
+          }
+
+          currentMergeTaskId = data.task_id;
+          listenMergeProgressSSE(currentMergeTaskId);
+        } catch (err) {
+          $('mergeStatusMsg').textContent = 'Lỗi: ' + err.message;
+          $('mergeStatusBadgeText').textContent = 'Lỗi';
+          $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-100 text-rose-700 flex items-center gap-1.5';
+          $('mergeCancelBtn').classList.add('hidden');
+          setMergeButtonLoading(false);
+          toast('Khởi tạo ghép video trực tuyến thất bại: ' + err.message, 'error');
+        }
+        return;
+      }
+
+      const selected = mergeVideos.filter(v => v.checked);
+      if (!selected.length) {
+        toast('Vui lòng chọn ít nhất 1 video để ghép', 'error');
+        return;
+      }
+
+      const files = selected.map(v => v.path);
+
+      // UI state: running
+      $('mergeProgressContainer').classList.remove('hidden');
+      $('mergeProgressContainer').classList.add('flex');
+      $('mergeDoneActions').classList.add('hidden');
+      $('mergeDoneActions').classList.remove('flex');
+      $('mergeCancelBtn').classList.remove('hidden');
+      setMergeButtonLoading(true);
+
+      $('mergeProgressBar').style.width = '0%';
+      $('mergeProgressPercent').textContent = '0%';
+      $('mergeSpeedText').textContent = '-';
+      $('mergeEtaText').textContent = '-';
+      $('mergeDurationText').textContent = '00:00 / --:--';
+      $('mergeOutputSizeText').textContent = '-';
+      $('mergeStatusMsg').textContent = 'Đang khởi động FFmpeg (Bảo toàn 100% chất lượng gốc)...';
+      $('mergeStatusBadgeText').textContent = 'Đang ghép nối...';
+      $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5';
+
+      try {
+        const resp = await fetch('/api/merge/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            files,
+            cut_end_seconds: cutSec,
+            mirror,
+            quality: 'original',
+            resolution: 'original',
+            fps: 'original',
+            bitrate: 'auto',
+            codec,
+            gpu: $('mergeGpu')?.value || 'nvenc',
+            color_filter: colorFilter,
+            custom_color_filter: customColorFilter,
+            audio_effect: audioEffect,
+            custom_audio_effect: customAudioEffect,
+            format,
+            output_dir: outputDir,
+            output_name: outputName,
+          })
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data.ok || !data.task_id) {
+          throw new Error(data.error || 'Lỗi không thể bắt đầu tác vụ ghép');
+        }
+
+        currentMergeTaskId = data.task_id;
+        listenMergeProgressSSE(currentMergeTaskId);
+      } catch (err) {
+        $('mergeStatusMsg').textContent = 'Lỗi: ' + err.message;
+        $('mergeStatusBadgeText').textContent = 'Lỗi';
+        $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-100 text-rose-700 flex items-center gap-1.5';
+        $('mergeCancelBtn').classList.add('hidden');
+        setMergeButtonLoading(false);
+        toast('Khởi tạo ghép video thất bại: ' + err.message, 'error');
+      }
+    }
+
+    function stopMergeTracking() {
+      if (mergeEventSource) {
+        try { mergeEventSource.close(); } catch (e) {}
+        mergeEventSource = null;
+      }
+      if (mergePollInterval) {
+        clearInterval(mergePollInterval);
+        mergePollInterval = null;
+      }
+    }
+
+    function handleMergeStatusUpdate(st) {
+      const pct = Math.max(0, Math.min(100, parseFloat(st.progress) || 0));
+      $('mergeProgressBar').style.width = `${pct}%`;
+      $('mergeProgressPercent').textContent = `${pct.toFixed(1)}%`;
+      $('mergeSpeedText').textContent = st.speed || '-';
+      $('mergeEtaText').textContent = st.eta || '-';
+      $('mergeDurationText').textContent = `${st.current_duration_str || '00:00'} / ${st.total_duration_str || '--:--'}`;
+      $('mergeOutputSizeText').textContent = st.output_size_str || '-';
+      $('mergeStatusMsg').textContent = st.message || 'Đang xử lý...';
+
+      if (st.status === 'done') {
+        stopMergeTracking();
+        currentMergeTaskId = null;
+        lastResultFilePath = st.output_path || '';
+        $('mergeProgressBar').style.width = '100%';
+        $('mergeProgressPercent').textContent = '100%';
+        $('mergeStatusBadgeText').textContent = 'Hoàn tất!';
+        $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-100 text-emerald-700 flex items-center gap-1.5';
+        $('mergeCancelBtn').classList.add('hidden');
+        setMergeButtonLoading(false);
+        $('mergeDoneActions').classList.remove('hidden');
+        $('mergeDoneActions').classList.add('flex');
+        toast(`Ghép thành công ${st.file_count || ''} tập video!`, 'success');
+
+        // Refresh video list in modal
+        fetchMergeVideosList($('mergeDirInput').value.trim());
+      } else if (st.status === 'error') {
+        stopMergeTracking();
+        currentMergeTaskId = null;
+        $('mergeStatusBadgeText').textContent = 'Thất bại';
+        $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-100 text-rose-700 flex items-center gap-1.5';
+        $('mergeCancelBtn').classList.add('hidden');
+        setMergeButtonLoading(false);
+        toast('Ghép video thất bại: ' + (st.message || 'Lỗi không xác định'), 'error');
+      } else if (st.status === 'cancelled') {
+        stopMergeTracking();
+        currentMergeTaskId = null;
+        $('mergeStatusBadgeText').textContent = 'Đã hủy';
+        $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 text-slate-600 flex items-center gap-1.5';
+        $('mergeCancelBtn').classList.add('hidden');
+        setMergeButtonLoading(false);
+        toast('Đã hủy tiến trình ghép video', 'info');
+      }
+    }
+
+    function listenMergeProgressSSE(taskId) {
+      stopMergeTracking();
+
+      if (window.EventSource) {
+        mergeEventSource = new EventSource(`/api/merge/events?task_id=${encodeURIComponent(taskId)}`);
+
+        mergeEventSource.onmessage = (event) => {
+          if (!currentMergeTaskId || currentMergeTaskId !== taskId) {
+            stopMergeTracking();
+            return;
+          }
+          try {
+            const st = JSON.parse(event.data);
+            handleMergeStatusUpdate(st);
+          } catch (err) {
+            console.error('SSE parse error:', err);
+          }
+        };
+
+        mergeEventSource.onerror = (err) => {
+          console.warn('SSE disconnected or error, falling back to status polling:', err);
+          stopMergeTracking();
+          if (currentMergeTaskId === taskId) {
+            pollMergeProgressFallback(taskId);
+          }
+        };
+      } else {
+        pollMergeProgressFallback(taskId);
+      }
+    }
+
+    function pollMergeProgressFallback(taskId) {
+      if (mergePollInterval) clearInterval(mergePollInterval);
+
+      mergePollInterval = setInterval(async () => {
+        if (!currentMergeTaskId || currentMergeTaskId !== taskId) {
+          clearInterval(mergePollInterval);
+          return;
+        }
+
+        try {
+          const resp = await fetch(`/api/merge/status?task_id=${encodeURIComponent(taskId)}`);
+          const st = await resp.json();
+
+          if (!resp.ok || st.error) {
+            throw new Error(st.error || 'Không tìm thấy trạng thái tác vụ');
+          }
+
+          handleMergeStatusUpdate(st);
+        } catch (e) {
+          console.warn('Poll error:', e);
+        }
+      }, 500);
+    }
+
+    async function cancelCurrentMerge() {
+      if (!currentMergeTaskId) return;
+      stopMergeTracking();
+      try {
+        await fetch('/api/merge/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task_id: currentMergeTaskId })
+        });
+        toast('Đang gửi lệnh dừng đến FFmpeg...', 'info');
+      } catch (e) {
+        toast('Lỗi khi hủy: ' + e.message, 'error');
+      }
+    }
+
+    // Merge Modal Event Bindings
+    if ($('openMergeModalBtn')) $('openMergeModalBtn').onclick = openMergeModal;
+    if ($('openMergeModalHeaderBtn')) $('openMergeModalHeaderBtn').onclick = openMergeModal;
+    if ($('closeMergeModalBtn')) $('closeMergeModalBtn').onclick = closeMergeModal;
+    if ($('mergeCloseBtn')) $('mergeCloseBtn').onclick = closeMergeModal;
+    if ($('mergeModal')) {
+      $('mergeModal').onclick = (e) => {
+        if (e.target === $('mergeModal')) closeMergeModal();
+      };
+    }
+
+    if ($('mergeChooseDirBtn')) {
+      $('mergeChooseDirBtn').onclick = async () => {
+        const newDir = await chooseDirectory('mergeDirInput');
+        if (newDir) fetchMergeVideosList(newDir);
+      };
+    }
+    if ($('mergeRefreshBtn')) {
+      $('mergeRefreshBtn').onclick = () => fetchMergeVideosList($('mergeDirInput').value.trim());
+    }
+    if ($('mergeOpenDirBtn')) {
+      $('mergeOpenDirBtn').onclick = () => openDirectory($('mergeDirInput').value.trim());
+    }
+
+    // Search filter bindings
+    if ($('mergeSearchInput')) {
+      $('mergeSearchInput').addEventListener('input', (e) => {
+        mergeSearchQuery = e.target.value.trim();
+        mergeCurrentPage = 1;
+        $('mergeClearSearchBtn')?.classList.toggle('hidden', !mergeSearchQuery);
+        renderMergeVideoList();
+      });
+    }
+
+    if ($('mergeClearSearchBtn')) {
+      $('mergeClearSearchBtn').onclick = () => {
+        mergeSearchQuery = '';
+        if ($('mergeSearchInput')) $('mergeSearchInput').value = '';
+        $('mergeClearSearchBtn').classList.add('hidden');
+        mergeCurrentPage = 1;
+        renderMergeVideoList();
+      };
+    }
+
+    if ($('mergePageSizeSelect')) {
+      $('mergePageSizeSelect').onchange = (e) => {
+        mergePageSize = e.target.value;
+        mergeCurrentPage = 1;
+        renderMergeVideoList();
+      };
+    }
+
+    if ($('mergeSelectAllBtn')) {
+      $('mergeSelectAllBtn').onclick = () => {
+        mergeVideos.forEach(v => v.checked = true);
+        renderMergeVideoList();
+        generateDefaultOutputName();
+      };
+    }
+    if ($('mergeDeselectAllBtn')) {
+      $('mergeDeselectAllBtn').onclick = () => {
+        mergeVideos.forEach(v => v.checked = false);
+        renderMergeVideoList();
+        generateDefaultOutputName();
+      };
+    }
+    if ($('mergeSelectCurrentPageBtn')) {
+      $('mergeSelectCurrentPageBtn').onclick = () => {
+        const filtered = getFilteredMergeVideos();
+        const pageSize = mergePageSize === 'all' ? filtered.length : parseInt(mergePageSize, 10);
+        const startIndex = (mergeCurrentPage - 1) * pageSize;
+        const pageItems = filtered.slice(startIndex, startIndex + pageSize);
+        pageItems.forEach(v => v.checked = true);
+        renderMergeVideoList();
+        generateDefaultOutputName();
+        toast('Đã chọn các video trên trang hiện tại', 'info');
+      };
+    }
+    if ($('mergeCheckAll')) {
+      $('mergeCheckAll').onchange = (e) => {
+        const filtered = getFilteredMergeVideos();
+        const pageSize = mergePageSize === 'all' ? filtered.length : parseInt(mergePageSize, 10);
+        const startIndex = (mergeCurrentPage - 1) * pageSize;
+        const pageItems = filtered.slice(startIndex, startIndex + pageSize);
+        pageItems.forEach(v => v.checked = e.target.checked);
+        renderMergeVideoList();
+        generateDefaultOutputName();
+      };
+    }
+    if ($('mergeSortNaturalBtn')) {
+      $('mergeSortNaturalBtn').onclick = naturalSortMergeVideos;
+    }
+
+    // Quick cut presets
+    document.querySelectorAll('.cut-preset-btn').forEach(btn => {
+      btn.onclick = () => {
+        const sec = btn.dataset.seconds;
+        if ($('mergeCutEndSeconds')) {
+          $('mergeCutEndSeconds').value = sec;
+          updateMergeSelectionSummary();
+        }
+      };
+    });
+
+    if ($('mergeCutEndSeconds')) {
+      $('mergeCutEndSeconds').addEventListener('input', updateMergeSelectionSummary);
+    }
+
+    if ($('mergeGpu')) {
+      $('mergeGpu').onchange = (e) => {
+        const badge = $('mergeGpuBadgeText');
+        if (!badge) return;
+        const val = e.target.value;
+        if (val === 'nvenc') {
+          badge.textContent = '⚡ NVIDIA NVENC (GPU Nvidia) - Render siêu tốc';
+        } else if (val === 'qsv') {
+          badge.textContent = '⚡ Intel QuickSync (GPU Intel) - Tăng tốc phần cứng';
+        } else if (val === 'amf') {
+          badge.textContent = '⚡ AMD AMF (GPU AMD) - Tăng tốc phần cứng';
+        } else {
+          badge.textContent = 'CPU Software (libx264/libx265)';
+        }
+      };
+    }
+
+    if ($('mergeColorFilter')) {
+      $('mergeColorFilter').onchange = (e) => {
+        const isCustom = e.target.value === 'custom';
+        $('mergeCustomColorFilter')?.classList.toggle('hidden', !isCustom);
+        updateMergeSelectionSummary();
+      };
+    }
+
+    if ($('mergeAudioEffect')) {
+      $('mergeAudioEffect').onchange = (e) => {
+        const isCustom = e.target.value === 'custom';
+        $('mergeCustomAudioEffect')?.classList.toggle('hidden', !isCustom);
+        updateMergeSelectionSummary();
+      };
+    }
+
+    if ($('mergeFormat')) {
+      $('mergeFormat').onchange = generateDefaultOutputName;
+    }
+
+    if ($('mergeResetNameBtn')) {
+      $('mergeResetNameBtn').onclick = generateDefaultOutputName;
+    }
+
+    if ($('mergeStartBtn')) {
+      $('mergeStartBtn').onclick = startVideoMerge;
+    }
+
+    if ($('mergeCancelBtn')) {
+      $('mergeCancelBtn').onclick = cancelCurrentMerge;
+    }
+
+    if ($('mergePlayResultBtn')) {
+      $('mergePlayResultBtn').onclick = () => {
+        if (!lastResultFilePath) return;
+        const fname = lastResultFilePath.split(/[\\/]/).pop();
+        openVideoModal({
+          title: fname,
+          url: `/api/video_file?path=${encodeURIComponent(lastResultFilePath)}`,
+          meta: {
+            duration: $('mergeDurationText')?.textContent || '',
+            size: $('mergeOutputSizeText')?.textContent || ''
+          }
+        });
+      };
+    }
+
+    if ($('mergeOpenResultFolderBtn')) {
+      $('mergeOpenResultFolderBtn').onclick = () => {
+        openDirectory($('mergeDirInput')?.value.trim());
+      };
+    }
+
+    if ($('mergeCopyResultPathBtn')) {
+      $('mergeCopyResultPathBtn').onclick = () => {
+        if (lastResultFilePath) copyToClipboard(lastResultFilePath, 'Đã sao chép đường dẫn video');
+      };
+    }
+
+    // Initial Startup
+    loadTasks();
+    renderRows();
+    renderTasks();
+    loadConfig();
+  </script>
+</body>
+</html>
