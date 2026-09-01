@@ -536,7 +536,7 @@ def select_best_encoder(codec_type: str = "h264", gpu_preference: str = "nvenc")
 
     if "nvenc" in chosen_encoder:
         flags.extend([
-            "-preset", "p6",
+            "-preset", "p4",           # High throughput HQ preset (P4)
             "-tune", "hq",
             "-pix_fmt", "yuv420p",
         ])
@@ -731,29 +731,45 @@ def generate_batch_filter_script(
     cut_end_seconds: float = 0.0,
     mirror: bool = False,
 ) -> str:
-    """Generate FFmpeg filter_complex script content with universal size/SAR/audio normalization and frame-accurate sync."""
+    """Generate FFmpeg filter_complex script content with ultra-fast size/SAR normalization and frame-accurate sync."""
     filter_parts = []
     concat_inputs = []
 
-    fps_part = f",fps={target_fps}" if target_fps else ""
     mirror_part = ",hflip" if mirror else ""
-    # Safe scale and pad filter: guarantees 100% exact size, SAR 1:1, pixel format yuv420p, sharp Lanczos scaling
-    video_norm_filter = (
-        f",scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
-        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,"
-        f"setsar=1,format=yuv420p"
-    )
 
     for idx, (f, info) in enumerate(zip(batch_files, batch_infos)):
         dur = info["effective_duration"]
         has_audio = info.get("has_audio", False)
+        in_w = int(info.get("width") or 0)
+        in_h = int(info.get("height") or 0)
+        in_fps = float(info.get("fps") or 0.0)
 
-        # Video stream: setpts, scale/pad/sar/format normalization, fps, mirror, color
+        # Video stream: only scale/pad if dimensions actually differ to eliminate CPU bottlenecks!
+        v_filters = []
         if cut_end_seconds > 0:
-            v_filter = f"trim=start=0:duration={dur:.3f},setpts=PTS-STARTPTS{video_norm_filter}{fps_part}{mirror_part}{color_filter_str}"
-        else:
-            v_filter = f"setpts=PTS-STARTPTS{video_norm_filter}{fps_part}{mirror_part}{color_filter_str}"
-        filter_parts.append(f"[{idx}:v]{v_filter}[v{idx}]")
+            v_filters.append(f"trim=start=0:duration={dur:.3f}")
+        v_filters.append("setpts=PTS-STARTPTS")
+
+        if in_w != target_w or in_h != target_h:
+            v_filters.append(
+                f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:flags=bilinear,"
+                f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,"
+                f"setsar=1"
+            )
+
+        if target_fps and abs(in_fps - target_fps) > 0.5:
+            v_filters.append(f"fps={target_fps}")
+
+        if mirror:
+            v_filters.append("hflip")
+        if color_filter_str:
+            clean_cf = color_filter_str.lstrip(",")
+            if clean_cf:
+                v_filters.append(clean_cf)
+
+        v_filters.append("format=yuv420p")
+        v_filter_combined = ",".join(v_filters)
+        filter_parts.append(f"[{idx}:v]{v_filter_combined}[v{idx}]")
 
         # Audio stream: setpts, resample with async sync, format stereo 44100Hz
         if has_audio:
@@ -779,8 +795,8 @@ def build_encoding_args(
     **kwargs,
 ) -> Tuple[str, List[str], List[str], str]:
     """
-    Configure video encoder and bitrate/CRF flags for Balanced High Quality (CQ 14 / CRF 14).
-    Provides crisp sharpness while keeping file size reasonably compact.
+    Configure video encoder and bitrate/CRF flags for Balanced High Quality.
+    Provides crisp sharpness while maximizing hardware encoding throughput.
     Returns: (chosen_encoder, enc_flags, bitrate_flags, display_label)
     """
     chosen_encoder, enc_flags, display_label = select_best_encoder(codec, gpu_pref)
@@ -796,19 +812,17 @@ def build_encoding_args(
     else:
         orig_video_bps = 2_000_000
 
-    # Exactly 3x boost of original video bitrate for clean sharpness
-    target_video_kbps = max(1800, int(orig_video_bps * 3.00) // 1000)
-    maxrate_kbps = max(3000, int(orig_video_bps * 5.00) // 1000)
-    bufsize_kbps = max(3600, int(orig_video_bps * 6.00) // 1000)
+    target_video_kbps = max(2000, int(orig_video_bps * 2.50) // 1000)
+    maxrate_kbps = max(3500, int(orig_video_bps * 4.00) // 1000)
+    bufsize_kbps = max(4000, int(orig_video_bps * 5.00) // 1000)
 
     bitrate_flags = []
     if "nvenc" in chosen_encoder:
         bitrate_flags.extend([
-            "-cq:v", "14",                     # High Quality Balanced CQ
+            "-cq:v", "16",                     # High Quality Balanced CQ
             "-b:v", f"{target_video_kbps}k",
             "-maxrate", f"{maxrate_kbps}k",
             "-bufsize", f"{bufsize_kbps}k",
-            "-rc-lookahead", "32",              # 32-frame lookahead
             "-rc", "vbr",
         ])
     elif "qsv" in chosen_encoder:
@@ -883,10 +897,16 @@ def run_single_pass_encode(
     if out_format in {"mp4", "mov"}:
         cmd.extend(["-movflags", "+faststart"])
 
+    is_gdrive = str(batch_output_file).startswith("/content/drive")
+    if is_gdrive:
+        actual_output_target = Path("/tmp") / f"nvme_merge_{uuid.uuid4().hex[:8]}_{batch_output_file.name}"
+    else:
+        actual_output_target = batch_output_file
+
     cmd.extend([
         "-threads", "0",
         "-progress", "pipe:1",
-        str(batch_output_file),
+        str(actual_output_target),
     ])
 
     startupinfo = None
@@ -989,12 +1009,23 @@ def run_single_pass_encode(
                     err_msg = f"File video đầu vào bị hỏng/lỗi 'moov atom not found' (file rỗng hoặc chưa tải xong). Vui lòng kiểm tra danh sách tập!\nChi tiết: {err_msg[:250]}"
             raise RuntimeError(f"FFmpeg xử lý thất bại (mã lỗi {proc.returncode}): {err_msg[:350]}")
 
+        # Transfer local temporary file to Google Drive
+        if is_gdrive and actual_output_target.exists():
+            update_task(message="Đang chuyển file video hoàn tất vào Google Drive...")
+            batch_output_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(actual_output_target), str(batch_output_file))
+
     finally:
         try:
             if script_file.exists():
                 script_file.unlink(missing_ok=True)
         except Exception:
             pass
+        if is_gdrive and actual_output_target.exists():
+            try:
+                actual_output_target.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -> None:
