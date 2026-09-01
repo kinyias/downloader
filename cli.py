@@ -475,6 +475,45 @@ def cli_merge_folder(
 
 # ───────────────────────── Interactive Menu ─────────────────────────
 
+def cli_check_gpu():
+    """Inspect and diagnose GPU hardware status and FFmpeg NVENC acceleration."""
+    print("\n" + "=" * 70)
+    print("       🔍 KIỂM TRA PHẦN CỨNG GPU & BỘ MÃ HÓA NVIDIA NVENC       ")
+    print("=" * 70)
+
+    smi_present = bool(shutil.which("nvidia-smi"))
+    gpu_name = video_service.get_nvidia_gpu_model_name()
+    print(f"1. Lệnh nvidia-smi    : {'✅ Khả dụng' if smi_present else '❌ Không tìm thấy'}")
+    print(f"2. Tên card GPU       : \033[1;32m{gpu_name or 'Không nhận diện được'}\033[0m")
+
+    ffmpeg_bin = video_service.get_ffmpeg_binary()
+    print(f"3. Đường dẫn FFmpeg   : {ffmpeg_bin}")
+
+    video_service._DETECTED_GPU_ENCODERS = None  # Force re-detection
+    gpu_info = video_service.detect_available_gpu_encoders()
+    print(f"4. Nhận diện GPU      : {'✅ CÓ GPU' if gpu_info.get('has_gpu') else '⚠️ CPU ONLY'}")
+    print(f"5. Bộ mã hóa chính    : \033[1;36m{gpu_info.get('primary_gpu')}\033[0m")
+    print(f"6. Hỗ trợ h264_nvenc  : {'✅ Có' if gpu_info.get('has_nvenc') else '❌ Không'}")
+
+    test_cmd = [
+        ffmpeg_bin, "-y", "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.1",
+        "-pix_fmt", "yuv420p", "-c:v", "h264_nvenc", "-f", "null", "-"
+    ]
+    try:
+        t_res = subprocess.run(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        if t_res.returncode == 0:
+            print("7. Thử nghiệm mã hóa  : \033[1;32m✅ THÀNH CÔNG (NVIDIA NVENC hoạt động hoàn hảo!)\033[0m")
+        else:
+            print(f"7. Thử nghiệm mã hóa  : \033[1;31m❌ THẤT BẠI (Mã lỗi {t_res.returncode})\033[0m")
+            print(f"   Chi tiết lỗi FFmpeg: {t_res.stderr.strip()[:300]}")
+    except Exception as exc:
+        print(f"7. Thử nghiệm mã hóa  : ❌ Lỗi ngoại lệ: {exc}")
+
+    print("=" * 70 + "\n")
+
+
+# ───────────────────────── Interactive Menu ─────────────────────────
+
 def run_interactive_menu():
     """Interactive CLI menu with prompt-driven workflow."""
     ensure_device_configured()
@@ -493,13 +532,14 @@ def run_interactive_menu():
         print(" [1] 🔍 Tìm kiếm phim theo tên / thể loại")
         print(" [2] ⚡ Tải phim theo Series ID (kèm tùy chọn tự động ghép)")
         print(" [3] 🎬 Ghép các file video có sẵn trong một thư mục")
-        print(" [4] 📱 Kiểm tra & Đăng ký lại thiết bị (Device ID)")
-        print(" [5] 📁 Đổi thư mục lưu trữ video")
+        print(" [4] 🔍 Kiểm tra chi tiết GPU & Thử nghiệm NVENC")
+        print(" [5] 📱 Kiểm tra & Đăng ký lại thiết bị (Device ID)")
+        print(" [6] 📁 Đổi thư mục lưu trữ video")
         print(" [0] 🚪 Thoát")
         print("=" * 70)
 
         try:
-            choice = input("👉 Nhập lựa chọn của bạn [0-5]: ").strip()
+            choice = input("👉 Nhập lựa chọn của bạn [0-6]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n👋 Tạm biệt!")
             break
@@ -569,6 +609,9 @@ def run_interactive_menu():
                 cli_merge_folder(Path(f_path), cut_end_seconds=cut_sec, mirror=mirror)
 
         elif choice == "4":
+            cli_check_gpu()
+
+        elif choice == "5":
             print("\n🔄 Đang thực hiện đăng ký thiết bị mới...")
             try:
                 from liushen.device_register import device_register
@@ -577,7 +620,7 @@ def run_interactive_menu():
             except Exception as exc:
                 print(f"❌ Lỗi đăng ký: {exc}")
 
-        elif choice == "5":
+        elif choice == "6":
             new_p = input(f"\n👉 Nhập đường dẫn thư mục mới (Hiện tại: {save_dir}): ").strip()
             if new_p:
                 p_obj = Path(new_p).resolve()
@@ -632,6 +675,9 @@ def main():
     p_mg.add_argument("--codec", type=str, default="h264", choices=["h264", "hevc"], help="Định dạng codec video")
     p_mg.add_argument("--gpu", type=str, default="nvenc", choices=["nvenc", "cpu", "qsv", "amf"], help="Bộ mã hóa phần cứng")
 
+    # Command: check-gpu
+    subparsers.add_parser("check-gpu", help="Kiểm tra chi tiết GPU & bộ mã hóa NVIDIA NVENC")
+
     # Command: register
     subparsers.add_parser("register", help="Đăng ký thiết bị mới và lưu cấu hình")
 
@@ -644,6 +690,9 @@ def main():
 
     if args.command == "search":
         cli_search(args.keyword, page=args.page)
+
+    elif args.command == "check-gpu":
+        cli_check_gpu()
 
     elif args.command == "download":
         out_d = Path(args.save_dir).resolve() if args.save_dir else None

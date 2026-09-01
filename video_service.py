@@ -35,6 +35,9 @@ def get_ffmpeg_binary() -> str:
     """Resolve ffmpeg binary path."""
     runtime_dir = get_runtime_base_dir()
     candidates = [
+        Path("/usr/local/bin/ffmpeg"),
+        Path("/usr/bin/ffmpeg"),
+        Path("/tmp/colab-ffmpeg-cuda/bin/ffmpeg"),
         runtime_dir / "ffmpeg.exe",
         runtime_dir / "ffmpeg",
         runtime_dir / "bin" / "ffmpeg.exe",
@@ -57,6 +60,9 @@ def get_ffprobe_binary() -> str:
     """Resolve ffprobe binary path."""
     runtime_dir = get_runtime_base_dir()
     candidates = [
+        Path("/usr/local/bin/ffprobe"),
+        Path("/usr/bin/ffprobe"),
+        Path("/tmp/colab-ffmpeg-cuda/bin/ffprobe"),
         runtime_dir / "ffprobe.exe",
         runtime_dir / "ffprobe",
         runtime_dir / "bin" / "ffprobe.exe",
@@ -408,11 +414,12 @@ def detect_available_gpu_encoders() -> Dict[str, Any]:
         if encoder_name not in encoders:
             return False
         try:
+            # Note: NVENC requires minimum resolution 144x144 and supported pixel format (yuv420p / nv12)
             test_cmd = [
-                ffmpeg_bin, "-y", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.05",
-                "-c:v", encoder_name, "-f", "null", "-"
+                ffmpeg_bin, "-y", "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.05",
+                "-pix_fmt", "yuv420p", "-c:v", encoder_name, "-f", "null", "-"
             ]
-            t_res = subprocess.run(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=3)
+            t_res = subprocess.run(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=4)
             return t_res.returncode == 0
         except Exception:
             return False

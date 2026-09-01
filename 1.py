@@ -221,6 +221,9 @@ def get_ffmpeg_binary() -> str:
     """Resolve ffmpeg for source checkout, PyInstaller onedir runs, and Linux/Colab."""
     runtime_dir = get_runtime_base_dir()
     candidates = [
+        Path("/usr/local/bin/ffmpeg"),
+        Path("/usr/bin/ffmpeg"),
+        Path("/tmp/colab-ffmpeg-cuda/bin/ffmpeg"),
         runtime_dir / "ffmpeg.exe",
         runtime_dir / "ffmpeg",
         runtime_dir / "bin" / "ffmpeg.exe",
