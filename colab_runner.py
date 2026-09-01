@@ -3,7 +3,7 @@
 """
 Google Colab & Remote Server Runner for Short Drama Downloader.
 Supports:
-  - Automatic Cloudflare Tunnel (Free, high speed, no registration required)
+  - Multi-tunnel simultaneous launching (Cloudflare, Localtunnel, Pinggy, Localhost.run)
   - Google Colab Port Proxy (serve_kernel_port_as_window)
   - Ngrok Tunnel (optional)
   - Auto-mount Google Drive save folder detection
@@ -22,6 +22,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+from typing import Dict, List
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -91,7 +92,7 @@ def check_and_setup_device(device_id: str = "", install_id: str = ""):
 
 
 def start_cloudflare_tunnel(port: int = 5000) -> str:
-    """Download cloudflared binary and start a free tunnel."""
+    """Download cloudflared binary and start a Cloudflare tunnel."""
     system = platform.system().lower()
     machine = platform.machine().lower()
 
@@ -99,7 +100,7 @@ def start_cloudflare_tunnel(port: int = 5000) -> str:
     bin_path = BASE_DIR / binary_name
 
     if not bin_path.exists() or not os.access(bin_path, os.X_OK):
-        print("[Tunnel] Dang tai Cloudflare Tunnel (cloudflared)...")
+        print("[Tunnel] Đang tải Cloudflare Tunnel (cloudflared)...")
         if system == "windows":
             url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
         elif system == "darwin":
@@ -113,13 +114,11 @@ def start_cloudflare_tunnel(port: int = 5000) -> str:
             urllib.request.urlretrieve(url, str(bin_path))
             if system != "windows":
                 bin_path.chmod(0o755)
-            print("[Tunnel] Tai cloudflared thanh cong!")
         except Exception as exc:
-            print(f"[Tunnel] Khong the tai cloudflared: {exc}")
+            print(f"[Cloudflare Tunnel] Lỗi tải cloudflared: {exc}")
             return ""
 
     cmd = [str(bin_path), "tunnel", "--url", f"http://127.0.0.1:{port}", "--no-autoupdate"]
-    
     tunnel_url = [""]
     url_found_event = threading.Event()
 
@@ -134,20 +133,85 @@ def start_cloudflare_tunnel(port: int = 5000) -> str:
                 errors="ignore"
             )
             for line in proc.stdout:
-                line_str = line.strip()
-                # Search for trycloudflare.com URL
-                m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_str)
+                m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line.strip())
                 if m:
                     tunnel_url[0] = m.group(0)
                     url_found_event.set()
-        except Exception as exc:
-            print(f"[Tunnel Error] {exc}")
+        except Exception:
             url_found_event.set()
 
-    t = threading.Thread(target=_monitor, daemon=True)
-    t.start()
+    threading.Thread(target=_monitor, daemon=True).start()
+    url_found_event.wait(timeout=12)
+    return tunnel_url[0]
 
-    url_found_event.wait(timeout=15)
+
+def start_localtunnel(port: int = 5000) -> str:
+    """Start localtunnel via npx."""
+    if not shutil.which("npx"):
+        return ""
+
+    cmd = ["npx", "-y", "localtunnel", "--port", str(port)]
+    tunnel_url = [""]
+    url_found_event = threading.Event()
+
+    def _monitor():
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="ignore"
+            )
+            for line in proc.stdout:
+                m = re.search(r"https://[a-zA-Z0-9-]+\.loca\.lt", line.strip())
+                if m:
+                    tunnel_url[0] = m.group(0)
+                    url_found_event.set()
+        except Exception:
+            url_found_event.set()
+
+    threading.Thread(target=_monitor, daemon=True).start()
+    url_found_event.wait(timeout=10)
+    return tunnel_url[0]
+
+
+def start_pinggy_tunnel(port: int = 5000) -> str:
+    """Start Pinggy SSH tunnel."""
+    if not shutil.which("ssh"):
+        return ""
+
+    cmd = [
+        "ssh", "-o", "StrictHostKeyChecking=no",
+        "-o", "ServerAliveInterval=30",
+        "-p", "443",
+        f"-R0:localhost:{port}",
+        "a.pinggy.io"
+    ]
+    tunnel_url = [""]
+    url_found_event = threading.Event()
+
+    def _monitor():
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="ignore"
+            )
+            for line in proc.stdout:
+                m = re.search(r"https://[a-zA-Z0-9-]+\.a\.pinggy\.(?:link|io)", line.strip())
+                if m:
+                    tunnel_url[0] = m.group(0)
+                    url_found_event.set()
+        except Exception:
+            url_found_event.set()
+
+    threading.Thread(target=_monitor, daemon=True).start()
+    url_found_event.wait(timeout=8)
     return tunnel_url[0]
 
 
@@ -161,6 +225,15 @@ def start_ngrok_tunnel(port: int = 5000, authtoken: str = "") -> str:
         return tunnel.public_url
     except Exception as exc:
         print(f"[Ngrok Error] {exc}")
+        return ""
+
+
+def get_public_ip() -> str:
+    """Get public IP for Localtunnel password bypass."""
+    try:
+        req = urllib.request.urlopen("https://ipv4.icanhazip.com", timeout=3)
+        return req.read().decode("utf-8").strip()
+    except Exception:
         return ""
 
 
@@ -197,7 +270,7 @@ def run_cli_downloader(series_id: str, output_dir: Path):
         pbar.set_postfix_str(f"Tập {ep_num} ({vid})")
 
         try:
-            result = parser_module.handle_video_request(
+            parser_module.handle_video_request(
                 vid,
                 series_id=series_id,
                 episode=ep_num,
@@ -213,34 +286,48 @@ def run_cli_downloader(series_id: str, output_dir: Path):
     print(f"📂 Video được lưu tại: {save_folder}\n")
 
 
-def print_banner(public_url: str, port: int, save_dir: Path):
-    """Print clean, formatted banner with links and instructions."""
+def print_banner(tunnels: Dict[str, str], port: int, save_dir: Path):
+    """Print clean, formatted banner with multiple live tunnel links and instructions."""
     colab_env = is_colab()
-    print("\n" + "=" * 68)
+    print("\n" + "=" * 70)
     print("        🎬 TRÌNH TẢI & GHÉP PHIM NGẮN (GOOGLE COLAB & SERVER)       ")
-    print("=" * 68)
+    print("=" * 70)
     print(f" 🌐 Web Server Local: http://127.0.0.1:{port}")
-    if public_url:
-        print(f" 🚀 ĐƯỜNG DẪN TRUY CẬP CÔNG KHAI (CLICK VÀO ĐÂY ĐỂ MỞ WEB UI):")
-        print(f"    👉 \033[1;32m{public_url}\033[0m")
+    print("\n 🚀 ĐƯỜNG DẪN TRUY CẬP CÔNG KHAI (CHỌN 1 TRONG CÁC LINK DƯỚI ĐÂY):")
+
+    has_any = False
+    for name, url in tunnels.items():
+        if url:
+            has_any = True
+            print(f"   👉 [{name}]: \033[1;32m{url}\033[0m")
+
+    if not has_any:
+        print("   ⚠️ Đang kết nối tunnel... Nếu link chưa hiện, vui lòng thử lại sau vài giây.")
+
+    public_ip = get_public_ip()
+    if public_ip and any("loca.lt" in u for u in tunnels.values()):
+        print(f"\n 🔑 Mật khẩu Localtunnel (Endpoint IP nếu được hỏi): \033[1;33m{public_ip}\033[0m")
+
     if colab_env:
         try:
             from google.colab import output
             output.serve_kernel_port_as_window(port)
-            print(f" 📱 Colab Port Proxy đã được kích hoạt!")
+            print(f" 📱 Colab Port Proxy đã được kích hoạt trực tiếp trong notebook!")
         except Exception:
             pass
-    print(f" 💾 Thư mục lưu video: {save_dir}")
-    print("=" * 68)
-    print("  * Giữ tab Colab này hoạt động trong lúc tải và ghép video.")
+
+    print(f"\n 💾 Thư mục lưu video: {save_dir}")
+    print("=" * 70)
+    print("  💡 Lưu ý: Nếu đường link Cloudflare báo lỗi 'This site can’t be reached'")
+    print("     (do nhà mạng VN chặn DNS trycloudflare), hãy click link Localtunnel/Pinggy ở trên!")
     print("  * Nhấn Ctrl+C để dừng server.")
-    print("=" * 68 + "\n")
+    print("=" * 70 + "\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Google Colab Runner for Short Drama Downloader")
     parser.add_argument("--port", type=int, default=5000, help="Port to run Flask app (default: 5000)")
-    parser.add_argument("--tunnel", type=str, default="cloudflare", choices=["cloudflare", "ngrok", "colab", "none"], help="Tunnel provider")
+    parser.add_argument("--tunnel", type=str, default="auto", choices=["auto", "cloudflare", "localtunnel", "pinggy", "ngrok", "none"], help="Tunnel provider")
     parser.add_argument("--ngrok-token", type=str, default="", help="Ngrok authtoken if using ngrok")
     parser.add_argument("--device-id", type=str, default="", help="DUANJU_DEVICE_ID")
     parser.add_argument("--install-id", type=str, default="", help="DUANJU_INSTALL_ID")
@@ -268,14 +355,30 @@ def main():
         run_cli_downloader(args.cli, save_dir)
         return
 
-    # Start tunnel if requested
-    public_url = ""
-    if args.tunnel == "cloudflare":
-        public_url = start_cloudflare_tunnel(args.port)
-    elif args.tunnel == "ngrok":
-        public_url = start_ngrok_tunnel(args.port, args.ngrok_token)
+    # Start tunnels
+    tunnels: Dict[str, str] = {}
 
-    print_banner(public_url, args.port, save_dir)
+    if args.tunnel in ["auto", "cloudflare"]:
+        cf_url = start_cloudflare_tunnel(args.port)
+        if cf_url:
+            tunnels["Cloudflare Tunnel (Khuyên dùng)"] = cf_url
+
+    if args.tunnel in ["auto", "localtunnel"]:
+        lt_url = start_localtunnel(args.port)
+        if lt_url:
+            tunnels["Localtunnel (Dự phòng 1 - Ổn định ở VN)"] = lt_url
+
+    if args.tunnel in ["auto", "pinggy"]:
+        pg_url = start_pinggy_tunnel(args.port)
+        if pg_url:
+            tunnels["Pinggy (Dự phòng 2 - Tốc độ cao)"] = pg_url
+
+    if args.tunnel == "ngrok" or args.ngrok_token:
+        ngrok_url = start_ngrok_tunnel(args.port, args.ngrok_token)
+        if ngrok_url:
+            tunnels["Ngrok Tunnel"] = ngrok_url
+
+    print_banner(tunnels, args.port, save_dir)
 
     # Launch Flask application
     from app import app
