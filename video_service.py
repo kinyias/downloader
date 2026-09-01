@@ -313,6 +313,29 @@ def probe_video_info(file_path: Path) -> Dict[str, Any]:
 _DETECTED_GPU_ENCODERS: Optional[Dict[str, Any]] = None
 
 
+def get_nvidia_gpu_model_name() -> str:
+    """Get the specific NVIDIA GPU name (e.g. Tesla T4, A100-SXM4-40GB, RTX 3060) via nvidia-smi."""
+    try:
+        startupinfo = None
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+        res = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            startupinfo=startupinfo,
+            timeout=3,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip().splitlines()[0].strip()
+    except Exception:
+        pass
+    return ""
+
+
 def detect_available_gpu_encoders() -> Dict[str, Any]:
     """Dynamically test and detect available hardware GPU encoders (NVIDIA NVENC, Intel QSV, AMD AMF, Apple VideoToolbox, etc.)."""
     global _DETECTED_GPU_ENCODERS
@@ -358,13 +381,16 @@ def detect_available_gpu_encoders() -> Dict[str, Any]:
     has_vt_h264 = _test_encoder("h264_videotoolbox")
     has_vt_hevc = _test_encoder("hevc_videotoolbox")
 
+    gpu_model = get_nvidia_gpu_model_name() if (has_nvenc_h264 or has_nvenc_hevc) else ""
+    nvenc_label = f"NVIDIA NVENC (GPU {gpu_model})" if gpu_model else "NVIDIA NVENC (GPU)"
+
     h264_list = []
     hevc_list = []
 
     if has_nvenc_h264:
-        h264_list.append({"name": "h264_nvenc", "label": "NVIDIA NVENC (GPU)"})
+        h264_list.append({"name": "h264_nvenc", "label": nvenc_label})
     if has_nvenc_hevc:
-        hevc_list.append({"name": "hevc_nvenc", "label": "NVIDIA NVENC (GPU)"})
+        hevc_list.append({"name": "hevc_nvenc", "label": nvenc_label})
 
     if has_qsv_h264:
         h264_list.append({"name": "h264_qsv", "label": "Intel QuickSync (GPU)"})
@@ -387,7 +413,7 @@ def detect_available_gpu_encoders() -> Dict[str, Any]:
 
     has_gpu = bool(has_nvenc_h264 or has_qsv_h264 or has_amf_h264 or has_vt_h264)
     if has_nvenc_h264:
-        primary = "NVIDIA NVENC (GPU)"
+        primary = nvenc_label
     elif has_qsv_h264:
         primary = "Intel QuickSync (GPU)"
     elif has_vt_h264:
@@ -400,6 +426,7 @@ def detect_available_gpu_encoders() -> Dict[str, Any]:
     result = {
         "has_gpu": has_gpu,
         "primary_gpu": primary,
+        "gpu_model": gpu_model,
         "has_nvenc": has_nvenc_h264,
         "has_qsv": has_qsv_h264,
         "has_amf": has_amf_h264,

@@ -479,11 +479,15 @@ def run_interactive_menu():
     """Interactive CLI menu with prompt-driven workflow."""
     ensure_device_configured()
     save_dir = get_default_download_dir()
+    gpu_info = video_service.detect_available_gpu_encoders()
+    gpu_name = gpu_info.get("primary_gpu", "CPU Software (x264)")
+    gpu_badge = f"\033[1;32m{gpu_name} (Đang bật - Tốc độ cao)\033[0m" if gpu_info.get("has_gpu") else f"\033[1;33m{gpu_name} (Chưa bật GPU Colab)\033[0m"
 
     while True:
         print("\n" + "=" * 70)
         print("       🎬 TRÌNH TẢI & GHÉP PHIM NGẮN (SHORT DRAMA CLI TOOL)       ")
         print("=" * 70)
+        print(f" ⚡ Tăng tốc phần cứng  : {gpu_badge}")
         print(f" 💾 Thư mục lưu hiện tại: \033[1;36m{save_dir}\033[0m")
         print("=" * 70)
         print(" [1] 🔍 Tìm kiếm phim theo tên / thể loại")
