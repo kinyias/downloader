@@ -142,6 +142,50 @@ def cli_search(keyword: str, page: int = 1) -> List[Dict[str, Any]]:
     return items
 
 
+def parse_episode_selection(selection_str: str, total_count: int) -> List[int]:
+    """
+    Parse episode selection string into a sorted list of 1-based episode indices.
+    Examples:
+      - "" or "all": [1, 2, ..., total_count]
+      - "1-20": [1, 2, ..., 20]
+      - "21-40": [21, 22, ..., 40]
+      - "10-": [10, 11, ..., total_count]
+      - "-15": [1, 2, ..., 15]
+      - "1,3,5,10-15": [1, 3, 5, 10, 11, 12, 13, 14, 15]
+      - "10": [10]
+    """
+    s = str(selection_str or "").strip().lower()
+    if not s or s in ["all", "tat ca", "het", "*"]:
+        return list(range(1, total_count + 1))
+
+    selected = set()
+    parts = re.split(r"[,;|\s]+", s)
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            left, right = part.split("-", 1)
+            left = left.strip()
+            right = right.strip()
+            start = int(left) if left.isdigit() else 1
+            end = int(right) if right.isdigit() else total_count
+            start = max(1, min(start, total_count))
+            end = max(1, min(end, total_count))
+            if start <= end:
+                selected.update(range(start, end + 1))
+            else:
+                selected.update(range(end, start + 1))
+        elif part.isdigit():
+            val = int(part)
+            if 1 <= val <= total_count:
+                selected.add(val)
+
+    if not selected:
+        return list(range(1, total_count + 1))
+    return sorted(list(selected))
+
+
 # ───────────────────────── Download Series Feature ─────────────────────────
 
 def cli_download_series(
@@ -153,9 +197,13 @@ def cli_download_series(
     clean_parts: bool = False,
     codec: str = "h264",
     gpu_pref: str = "nvenc",
+    episode_selection: str = "",
+    start_ep: Optional[int] = None,
+    end_ep: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> Optional[Path]:
     """
-    Download all episodes of a series with real-time tqdm progress bars,
+    Download selected episodes of a series with real-time tqdm progress bars,
     with optional instant video merging.
     """
     ensure_device_configured()
@@ -176,23 +224,47 @@ def cli_download_series(
         return None
 
     series_name = detail.get("series_name") or f"Phim_{series_id}"
-    episodes = detail.get("episodes") or []
-    total_eps = len(episodes)
+    all_episodes = detail.get("episodes") or []
+    total_eps = len(all_episodes)
 
     if total_eps == 0:
         print("❌ Bộ phim không có tập nào hoặc không tìm thấy danh sách video ID.")
+        return None
+
+    # Filter selected episodes
+    if start_ep is not None or end_ep is not None or limit is not None:
+        st = max(1, start_ep or 1)
+        en = min(total_eps, end_ep or total_eps)
+        if limit is not None and limit > 0:
+            en = min(en, st + limit - 1)
+        selected_indices = set(range(st, en + 1))
+    elif episode_selection:
+        selected_indices = set(parse_episode_selection(episode_selection, total_eps))
+    else:
+        selected_indices = set(range(1, total_eps + 1))
+
+    episodes = [ep for ep in all_episodes if int(ep.get("episode_num", 0)) in selected_indices]
+
+    if not episodes:
+        print(f"❌ Không có tập nào phù hợp với lựa chọn '{episode_selection}' (Tổng số tập phim: {total_eps}).")
         return None
 
     clean_name = re.sub(r'[\\/*?:"<>|]', '_', series_name).strip()
     series_folder = save_base / clean_name
     series_folder.mkdir(parents=True, exist_ok=True)
 
+    min_ep = min(int(ep["episode_num"]) for ep in episodes)
+    max_ep = max(int(ep["episode_num"]) for ep in episodes)
+
     print("\n" + "=" * 65)
-    print(f"🎬 TÊN PHIM     : \033[1;32m{series_name}\033[0m")
-    print(f"🔢 TỔNG SỐ TẬP   : \033[1;33m{total_eps} tập\033[0m")
-    print(f"📁 THƯ MỤC LƯU  : {series_folder}")
+    print(f"🎬 TÊN PHIM        : \033[1;32m{series_name}\033[0m")
+    if len(episodes) == total_eps:
+        print(f"🔢 TỔNG SỐ TẬP TẢI : \033[1;33m{total_eps} tập (Toàn bộ)\033[0m")
+    else:
+        print(f"🔢 SỐ TẬP ĐƯỢC CHỌN: \033[1;33m{len(episodes)} tập (Từ tập {min_ep} -> tập {max_ep} / Tổng: {total_eps} tập)\033[0m")
+    print(f"📁 THƯ MỤC LƯU     : {series_folder}")
     if auto_merge:
-        print(f"⚙️ TỰ ĐỘNG GHÉP : Bật (Cắt đuôi: {cut_end_seconds}s | Lật hình: {'Có' if mirror else 'Không'})")
+        print(f"⚙️ TỰ ĐỘNG GHÉP    : Bật (Cắt đuôi: {cut_end_seconds}s | Lật hình: {'Có' if mirror else 'Không'})")
     print("=" * 65 + "\n")
 
     # Step 1: Pre-resolve video models in batches for maximum speed
@@ -251,14 +323,19 @@ def cli_download_series(
 
     pbar.close()
 
-    print(f"\n✨ TẢI HOÀN TẤT: \033[1;32m{success_count}/{total_eps} tập thành công\033[0m (Thất bại: {fail_count})")
+    print(f"\n✨ TẢI HOÀN TẤT: \033[1;32m{success_count}/{len(episodes)} tập thành công\033[0m (Thất bại: {fail_count})")
     print(f"📂 Thư mục chứa tập: {series_folder}\n")
 
     # Step 3: Optional Auto-merge
     if auto_merge and downloaded_files:
+        if len(episodes) == total_eps:
+            merge_name = f"{clean_name}_FULL.mp4"
+        else:
+            merge_name = f"{clean_name}_Tap_{min_ep:03d}-{max_ep:03d}_FULL.mp4"
+
         merged_file = cli_merge_folder(
             folder_path=series_folder,
-            output_name=f"{clean_name}_FULL.mp4",
+            output_name=merge_name,
             output_dir=save_base,
             cut_end_seconds=cut_end_seconds,
             mirror=mirror,
@@ -432,17 +509,25 @@ def run_interactive_menu():
                     if sel.isdigit() and 1 <= int(sel) <= len(results):
                         chosen = results[int(sel) - 1]
                         s_id = chosen.get("drama_id")
+                        ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
                         merge_ans = input("👉 Tự động ghép thành 1 video FULL sau khi tải xong? (y/N) [y]: ").strip().lower()
                         auto_merge = merge_ans in ["", "y", "yes", "1"]
                         cut_sec = 0.0
                         if auto_merge:
                             cut_str = input("👉 Cắt bỏ phần cuối mỗi tập (giây nhạc kết, ví dụ 0): ").strip()
                             cut_sec = float(cut_str) if cut_str.replace('.', '', 1).isdigit() else 0.0
-                        cli_download_series(s_id, output_dir=save_dir, auto_merge=auto_merge, cut_end_seconds=cut_sec)
+                        cli_download_series(
+                            s_id,
+                            output_dir=save_dir,
+                            auto_merge=auto_merge,
+                            cut_end_seconds=cut_sec,
+                            episode_selection=ep_sel,
+                        )
 
         elif choice == "2":
             s_id = input("\n👉 Nhập Series ID hoặc Link phim (ví dụ 7369168922572164134): ").strip()
             if s_id:
+                ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
                 merge_ans = input("👉 Tự động ghép thành 1 video FULL sau khi tải xong? (y/N) [y]: ").strip().lower()
                 auto_merge = merge_ans in ["", "y", "yes", "1"]
                 cut_sec = 0.0
@@ -452,7 +537,14 @@ def run_interactive_menu():
                     cut_sec = float(cut_str) if cut_str.replace('.', '', 1).isdigit() else 0.0
                     m_ans = input("👉 Lật hình (Mirror video)? (y/N) [n]: ").strip().lower()
                     mirror = m_ans in ["y", "yes", "1"]
-                cli_download_series(s_id, output_dir=save_dir, auto_merge=auto_merge, cut_end_seconds=cut_sec, mirror=mirror)
+                cli_download_series(
+                    s_id,
+                    output_dir=save_dir,
+                    auto_merge=auto_merge,
+                    cut_end_seconds=cut_sec,
+                    mirror=mirror,
+                    episode_selection=ep_sel,
+                )
 
         elif choice == "3":
             f_path = input("\n👉 Nhập đường dẫn thư mục chứa các tập video (Enter để dùng thư mục con trong save_dir): ").strip()
@@ -507,9 +599,13 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Lệnh chức năng")
 
     # Command: download
-    p_dl = subparsers.add_parser("download", help="Tải toàn bộ các tập của một bộ phim")
+    p_dl = subparsers.add_parser("download", help="Tải các tập của một bộ phim")
     p_dl.add_argument("series_id", type=str, help="Series ID hoặc Link phim (ví dụ: 7369168922572164134)")
-    p_dl.add_argument("--merge", action="store_true", help="Tự động ghép tất cả các tập thành 1 video FULL")
+    p_dl.add_argument("-e", "--episodes", "--range", type=str, default="", help="Khoảng tập cần tải (ví dụ: 1-20, 21-40, 1,3,5-10, hoặc để trống tải hết)")
+    p_dl.add_argument("--start", type=int, default=None, help="Tập bắt đầu tải (ví dụ: 1)")
+    p_dl.add_argument("--end", type=int, default=None, help="Tập kết thúc tải (ví dụ: 20)")
+    p_dl.add_argument("--limit", type=int, default=None, help="Số lượng tập tối đa cần tải (ví dụ: 10)")
+    p_dl.add_argument("--merge", action="store_true", help="Tự động ghép tất cả các tập đã chọn thành 1 video FULL")
     p_dl.add_argument("--cut-end", type=float, default=0.0, help="Số giây cắt bỏ ở cuối mỗi tập (mặc định: 0)")
     p_dl.add_argument("--mirror", action="store_true", help="Lật hình ngang (Mirror video)")
     p_dl.add_argument("--clean-parts", action="store_true", help="Xóa các tập lẻ sau khi ghép thành công")
@@ -556,6 +652,10 @@ def main():
             clean_parts=args.clean_parts,
             codec=args.codec,
             gpu_pref=args.gpu,
+            episode_selection=args.episodes,
+            start_ep=args.start,
+            end_ep=args.end,
+            limit=args.limit,
         )
 
     elif args.command == "merge":
