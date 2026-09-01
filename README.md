@@ -1,6 +1,10 @@
-﻿# 短剧下载工具（开源版）
+# 短剧下载工具（开源版）/ Short Drama Downloader
 
-这是一个本地 EXE/Web UI 版短剧下载工具。双击 EXE 后启动本地 Flask 服务，并自动打开浏览器前端。
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kinyias/downloader/blob/main/short_drama_colab.ipynb)
+
+> 🚀 **Google Colab Ready**: Hỗ trợ chạy trực tiếp trên Google Colab miễn phí kèm tăng tốc GPU và lưu vào Google Drive! Xem chi tiết tại [README_COLAB.md](README_COLAB.md) hoặc click vào huy hiệu bên trên.
+
+这是一个本地 EXE/Web UI / Colab 版短剧下载工具。启动 Flask 服务并支持本地浏览器前端或云端 Public Tunnel。
 
 ## 当前界面模块
 

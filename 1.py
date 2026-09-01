@@ -10,6 +10,7 @@ import re
 import json
 import sys
 import time
+import shutil
 import struct
 import base64
 import hashlib
@@ -217,17 +218,24 @@ VIDEO_TTL_SECONDS = int(os.getenv("VIDEO_TTL_SECONDS", "0"))
 
 
 def get_ffmpeg_binary() -> str:
-    """Resolve ffmpeg for source checkout and PyInstaller onedir runs."""
+    """Resolve ffmpeg for source checkout, PyInstaller onedir runs, and Linux/Colab."""
     runtime_dir = get_runtime_base_dir()
     candidates = [
         runtime_dir / "ffmpeg.exe",
-        runtime_dir / "??" / "ffmpeg.exe",
+        runtime_dir / "ffmpeg",
+        runtime_dir / "bin" / "ffmpeg.exe",
+        runtime_dir / "bin" / "ffmpeg",
         Path(getattr(sys, "_MEIPASS", runtime_dir)) / "ffmpeg.exe",
-        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "??" / "ffmpeg.exe",
+        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "ffmpeg",
+        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "bin" / "ffmpeg.exe",
+        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "bin" / "ffmpeg",
     ]
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.exists() and candidate.is_file():
             return str(candidate)
+    which_bin = shutil.which("ffmpeg")
+    if which_bin:
+        return which_bin
     return os.getenv("FFMPEG_BIN", FFMPEG_BIN)
 
 

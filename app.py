@@ -500,6 +500,12 @@ def api_batch_resolve():
 def api_choose_directory():
     """Open native OS folder picker dialog to select download folder."""
     try:
+        if sys.platform != "win32" and not os.getenv("DISPLAY"):
+            return jsonify({
+                "ok": False,
+                "headless": True,
+                "message": "Môi trường Linux/Google Colab không có giao diện cửa sổ. Bạn có thể nhập trực tiếp đường dẫn thư mục (ví dụ: /content/drive/MyDrive/ShortDrama hoặc ./src)."
+            })
         import tkinter as tk
         from tkinter import filedialog
         root = tk.Tk()
@@ -512,7 +518,10 @@ def api_choose_directory():
             return jsonify({"ok": True, "path": norm_path})
         return jsonify({"ok": False, "cancelled": True})
     except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({
+            "ok": False,
+            "error": f"Không thể mở hộp thoại chọn thư mục: {exc}. Bạn có thể nhập trực tiếp đường dẫn."
+        })
 
 
 @app.route("/api/open_directory", methods=["POST"])
@@ -530,7 +539,8 @@ def api_open_directory():
         elif sys.platform == "darwin":
             subprocess.run(["open", str(path_obj)])
         else:
-            subprocess.run(["xdg-open", str(path_obj)])
+            if os.getenv("DISPLAY"):
+                subprocess.run(["xdg-open", str(path_obj)], check=False)
         return jsonify({"ok": True, "path": str(path_obj)})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -741,11 +751,23 @@ def api_merge_cancel():
     return jsonify({"ok": ok, "task_id": task_id})
 
 
+def _is_colab_or_headless() -> bool:
+    """Detect if running in Google Colab, Kaggle, or a headless server."""
+    if "google.colab" in sys.modules or os.getenv("COLAB_GPU") is not None or os.getenv("COLAB_RELEASE_TAG") is not None:
+        return True
+    if sys.platform != "win32" and not os.getenv("DISPLAY"):
+        return True
+    return False
+
+
 def _should_open_browser() -> bool:
+    if _is_colab_or_headless():
+        return False
     return os.getenv("OPEN_BROWSER", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 if __name__ == "__main__":
+    host = os.getenv("APP_HOST", "0.0.0.0" if _is_colab_or_headless() else "127.0.0.1")
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.getenv("APP_PORT", "5000"))
     url = f"http://127.0.0.1:{port}"
 
@@ -753,9 +775,12 @@ if __name__ == "__main__":
         def open_browser():
             import time
             time.sleep(1)
-            webbrowser.open(url)
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
 
         threading.Thread(target=open_browser, daemon=True).start()
 
-    print(f"短剧下载工具 开源版: {url}")
-    app.run(host="127.0.0.1", port=port, debug=os.getenv("FLASK_DEBUG", "0") == "1")
+    print(f"短剧下载工具 开源版: http://127.0.0.1:{port} (host={host})")
+    app.run(host=host, port=port, debug=os.getenv("FLASK_DEBUG", "0") == "1")

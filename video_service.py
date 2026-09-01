@@ -36,12 +36,16 @@ def get_ffmpeg_binary() -> str:
     runtime_dir = get_runtime_base_dir()
     candidates = [
         runtime_dir / "ffmpeg.exe",
+        runtime_dir / "ffmpeg",
         runtime_dir / "bin" / "ffmpeg.exe",
+        runtime_dir / "bin" / "ffmpeg",
         Path(getattr(sys, "_MEIPASS", runtime_dir)) / "ffmpeg.exe",
+        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "ffmpeg",
         Path(getattr(sys, "_MEIPASS", runtime_dir)) / "bin" / "ffmpeg.exe",
+        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "bin" / "ffmpeg",
     ]
     for c in candidates:
-        if c.exists():
+        if c.exists() and c.is_file():
             return str(c)
     which_bin = shutil.which("ffmpeg")
     if which_bin:
@@ -54,12 +58,16 @@ def get_ffprobe_binary() -> str:
     runtime_dir = get_runtime_base_dir()
     candidates = [
         runtime_dir / "ffprobe.exe",
+        runtime_dir / "ffprobe",
         runtime_dir / "bin" / "ffprobe.exe",
+        runtime_dir / "bin" / "ffprobe",
         Path(getattr(sys, "_MEIPASS", runtime_dir)) / "ffprobe.exe",
+        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "ffprobe",
         Path(getattr(sys, "_MEIPASS", runtime_dir)) / "bin" / "ffprobe.exe",
+        Path(getattr(sys, "_MEIPASS", runtime_dir)) / "bin" / "ffprobe",
     ]
     for c in candidates:
-        if c.exists():
+        if c.exists() and c.is_file():
             return str(c)
     which_bin = shutil.which("ffprobe")
     if which_bin:
@@ -312,27 +320,109 @@ def probe_video_info(file_path: Path) -> Dict[str, Any]:
         }
 
 
-# ───────────────────────── GPU Hardware Acceleration (Default: NVIDIA NVENC) ─────────────────────────
+# ───────────────────────── GPU Hardware Acceleration (Auto Detection & Fallback) ─────────────────────────
+
+_DETECTED_GPU_ENCODERS: Optional[Dict[str, Any]] = None
+
 
 def detect_available_gpu_encoders() -> Dict[str, Any]:
-    """Return available hardware GPU encoders with NVIDIA NVENC as default."""
-    return {
-        "has_gpu": True,
-        "primary_gpu": "NVIDIA NVENC (GPU)",
-        "h264_encoders": [{"name": "h264_nvenc", "label": "NVIDIA NVENC (GPU)"}, {"name": "h264_qsv", "label": "Intel QuickSync (GPU)"}],
-        "hevc_encoders": [{"name": "hevc_nvenc", "label": "NVIDIA NVENC (GPU)"}, {"name": "hevc_qsv", "label": "Intel QuickSync (GPU)"}],
+    """Dynamically detect available hardware GPU encoders (NVIDIA NVENC, Intel QSV, AMD AMF, Apple VideoToolbox, etc.)."""
+    global _DETECTED_GPU_ENCODERS
+    if _DETECTED_GPU_ENCODERS is not None:
+        return _DETECTED_GPU_ENCODERS
+
+    ffmpeg_bin = get_ffmpeg_binary()
+    encoders = set()
+    try:
+        startupinfo = None
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+        res = subprocess.run([ffmpeg_bin, "-encoders"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=5)
+        for line in res.stdout.splitlines():
+            m = re.search(r"^\s*V\S*\s+(\S+)", line)
+            if m:
+                encoders.add(m.group(1).lower())
+    except Exception:
+        pass
+
+    # Test if NVENC can actually run with current hardware/driver
+    has_nvenc = False
+    if "h264_nvenc" in encoders:
+        try:
+            test_cmd = [
+                ffmpeg_bin, "-y", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.1",
+                "-c:v", "h264_nvenc", "-f", "null", "-"
+            ]
+            t_res = subprocess.run(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=4)
+            if t_res.returncode == 0:
+                has_nvenc = True
+        except Exception:
+            pass
+
+    has_qsv = "h264_qsv" in encoders
+    has_amf = "h264_amf" in encoders
+    has_videotoolbox = "h264_videotoolbox" in encoders
+
+    h264_list = []
+    hevc_list = []
+
+    if has_nvenc:
+        h264_list.append({"name": "h264_nvenc", "label": "NVIDIA NVENC (GPU)"})
+        if "hevc_nvenc" in encoders:
+            hevc_list.append({"name": "hevc_nvenc", "label": "NVIDIA NVENC (GPU)"})
+    if has_qsv:
+        h264_list.append({"name": "h264_qsv", "label": "Intel QuickSync (GPU)"})
+        if "hevc_qsv" in encoders:
+            hevc_list.append({"name": "hevc_qsv", "label": "Intel QuickSync (GPU)"})
+    if has_amf:
+        h264_list.append({"name": "h264_amf", "label": "AMD AMF (GPU)"})
+        if "hevc_amf" in encoders:
+            hevc_list.append({"name": "hevc_amf", "label": "AMD AMF (GPU)"})
+    if has_videotoolbox:
+        h264_list.append({"name": "h264_videotoolbox", "label": "Apple VideoToolbox (GPU)"})
+        if "hevc_videotoolbox" in encoders:
+            hevc_list.append({"name": "hevc_videotoolbox", "label": "Apple VideoToolbox (GPU)"})
+
+    # Always provide CPU software encoders
+    h264_list.append({"name": "libx264", "label": "CPU Software (x264)"})
+    hevc_list.append({"name": "libx265", "label": "CPU Software (x265)"})
+
+    has_gpu = has_nvenc or has_qsv or has_amf or has_videotoolbox
+    if has_nvenc:
+        primary = "NVIDIA NVENC (GPU)"
+    elif has_qsv:
+        primary = "Intel QuickSync (GPU)"
+    elif has_videotoolbox:
+        primary = "Apple VideoToolbox (GPU)"
+    elif has_amf:
+        primary = "AMD AMF (GPU)"
+    else:
+        primary = "CPU Software (x264)"
+
+    result = {
+        "has_gpu": has_gpu,
+        "primary_gpu": primary,
+        "has_nvenc": has_nvenc,
+        "h264_encoders": h264_list,
+        "hevc_encoders": hevc_list,
     }
+    _DETECTED_GPU_ENCODERS = result
+    return result
 
 
 def select_best_encoder(codec_type: str = "h264", gpu_preference: str = "nvenc") -> Tuple[str, List[str], str]:
     """
-    Select video encoder and FFmpeg flags with default to NVIDIA NVENC GPU.
+    Select video encoder and FFmpeg flags with dynamic fallback.
     Configured for visually lossless / maximum original fidelity.
     Returns: (encoder_name, encoder_flags, display_label)
     """
     codec_lower = str(codec_type or "h264").lower()
     is_hevc = codec_lower in ["h265", "hevc"]
     pref = str(gpu_preference or "nvenc").lower()
+
+    gpu_info = detect_available_gpu_encoders()
 
     if pref in ["cpu", "software"]:
         chosen_encoder = "libx265" if is_hevc else "libx264"
@@ -343,9 +433,32 @@ def select_best_encoder(codec_type: str = "h264", gpu_preference: str = "nvenc")
     elif pref in ["amf", "amd"]:
         chosen_encoder = "hevc_amf" if is_hevc else "h264_amf"
         display_label = "AMD AMF (GPU)"
-    else:  # Default: NVIDIA NVENC (GPU)
-        chosen_encoder = "hevc_nvenc" if is_hevc else "h264_nvenc"
-        display_label = "NVIDIA NVENC (GPU)"
+    elif pref in ["videotoolbox", "apple"]:
+        chosen_encoder = "hevc_videotoolbox" if is_hevc else "h264_videotoolbox"
+        display_label = "Apple VideoToolbox (GPU)"
+    else:  # Default / nvenc
+        if gpu_info.get("has_nvenc"):
+            chosen_encoder = "hevc_nvenc" if is_hevc else "h264_nvenc"
+            display_label = "NVIDIA NVENC (GPU)"
+        elif gpu_info.get("has_gpu"):
+            # Use another available GPU encoder
+            primary_label = gpu_info.get("primary_gpu", "")
+            if "QuickSync" in primary_label:
+                chosen_encoder = "hevc_qsv" if is_hevc else "h264_qsv"
+                display_label = "Intel QuickSync (GPU)"
+            elif "VideoToolbox" in primary_label:
+                chosen_encoder = "hevc_videotoolbox" if is_hevc else "h264_videotoolbox"
+                display_label = "Apple VideoToolbox (GPU)"
+            elif "AMF" in primary_label:
+                chosen_encoder = "hevc_amf" if is_hevc else "h264_amf"
+                display_label = "AMD AMF (GPU)"
+            else:
+                chosen_encoder = "libx265" if is_hevc else "libx264"
+                display_label = f"CPU Software ({chosen_encoder})"
+        else:
+            # Fallback smoothly to CPU
+            chosen_encoder = "libx265" if is_hevc else "libx264"
+            display_label = f"CPU Software ({chosen_encoder})"
 
     flags: List[str] = ["-c:v", chosen_encoder]
 
@@ -369,6 +482,12 @@ def select_best_encoder(codec_type: str = "h264", gpu_preference: str = "nvenc")
     elif "amf" in chosen_encoder:
         flags.extend([
             "-quality", "quality",
+            "-pix_fmt", "yuv420p",
+        ])
+        if is_hevc:
+            flags.extend(["-tag:v", "hvc1"])
+    elif "videotoolbox" in chosen_encoder:
+        flags.extend([
             "-pix_fmt", "yuv420p",
         ])
         if is_hevc:
@@ -1014,4 +1133,110 @@ def start_merge_task(files: List[str], options: Dict[str, Any]) -> str:
     )
     thread.start()
     return task_id
+
+
+def execute_online_merge_job(task_id: str, video_ids: List[str], options: Dict[str, Any]) -> None:
+    """Download episodes to temporary folder and merge them seamlessly."""
+    with MERGE_LOCK:
+        task = MERGE_TASKS.get(task_id)
+        if not task:
+            return
+
+    def update_task(**kwargs):
+        with MERGE_LOCK:
+            if task_id in MERGE_TASKS:
+                MERGE_TASKS[task_id].update(kwargs)
+
+    temp_dir = None
+    try:
+        update_task(status="running", progress=0, message=f"Đang phân tích thông tin {len(video_ids)} tập...")
+        import importlib
+        parser_module = importlib.import_module("1")
+
+        # 1. Resolve stream infos for all episodes
+        stream_infos = parser_module.resolve_batch_stream_infos(video_ids)
+        if not stream_infos:
+            raise ValueError("Không thể lấy thông tin giải mã các tập video.")
+
+        # Create temporary working directory
+        temp_dir = Path(get_runtime_base_dir() / "temp_online_merge" / task_id).resolve()
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        downloaded_files = []
+        total_vids = len(stream_infos)
+
+        # 2. Download and decrypt each episode to temp_dir
+        for idx, sinfo in enumerate(stream_infos, 1):
+            with MERGE_LOCK:
+                if MERGE_TASKS.get(task_id, {}).get("cancelled"):
+                    raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+
+            vid = sinfo.get("video_id") or f"ep_{idx}"
+            update_task(
+                message=f"Đang tải & giải mã tập {idx}/{total_vids}...",
+                progress=round(((idx - 1) / total_vids) * 35, 1)  # 0-35% for download phase
+            )
+
+            target_file = temp_dir / f"ep_{idx:03d}_{vid}.mp4"
+
+            content_key = bytes.fromhex(sinfo["content_key_hex"]) if sinfo.get("content_key_hex") else None
+            parser_module.stream_copy_video_with_ffmpeg(
+                request_or_domain="http://127.0.0.1",
+                video_url=sinfo["url"],
+                content_key=content_key,
+                filename=target_file.name,
+                save_dir=str(temp_dir),
+            )
+            if target_file.exists() and target_file.stat().st_size > 0:
+                downloaded_files.append(str(target_file))
+            else:
+                raise RuntimeError(f"Tải tập {idx} thất bại (file rỗng hoặc không tồn tại).")
+
+        # 3. Now merge the downloaded files using the standard merge pipeline
+        update_task(message="Đang tiến hành ghép các tập đã tải về...", progress=35)
+
+        # Delegate to merge job
+        execute_merge_job(task_id, downloaded_files, options)
+
+    except Exception as exc:
+        is_cancel = task.get("cancelled") or "hủy bỏ" in str(exc)
+        update_task(
+            status="cancelled" if is_cancel else "error",
+            progress=0,
+            message=str(exc),
+        )
+    finally:
+        # Cleanup temporary files
+        if temp_dir and temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+
+def start_online_merge_task(video_ids: List[str], options: Dict[str, Any]) -> str:
+    """Start background online video merge task and return task_id."""
+    task_id = uuid.uuid4().hex
+    with MERGE_LOCK:
+        MERGE_TASKS[task_id] = {
+            "task_id": task_id,
+            "status": "pending",
+            "progress": 0,
+            "speed": "-",
+            "eta": "-",
+            "message": "Đang khởi tạo tác vụ ghép video trực tuyến...",
+            "created_at": time.time(),
+            "cancelled": False,
+            "video_ids": video_ids,
+            "options": options,
+        }
+
+    thread = threading.Thread(
+        target=execute_online_merge_job,
+        args=(task_id, video_ids, options),
+        daemon=True,
+    )
+    thread.start()
+    return task_id
+
 
