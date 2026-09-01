@@ -1264,3 +1264,57 @@ def start_online_merge_task(video_ids: List[str], options: Dict[str, Any]) -> st
     return task_id
 
 
+def merge_videos_sync(
+    files: List[str],
+    options: Dict[str, Any],
+    progress_callback: Optional[Callable[[float, str, str], None]] = None,
+) -> Path:
+    """Synchronous video merge function designed for CLI and scripts with real-time progress callbacks."""
+    task_id = uuid.uuid4().hex
+    with MERGE_LOCK:
+        MERGE_TASKS[task_id] = {
+            "task_id": task_id,
+            "status": "pending",
+            "progress": 0,
+            "speed": "-",
+            "eta": "-",
+            "message": "Đang chuẩn bị ghép video...",
+            "created_at": time.time(),
+            "cancelled": False,
+            "files": files,
+            "options": options,
+        }
+
+    def _runner():
+        execute_merge_job(task_id, files, options)
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+
+    last_pct = -1.0
+    while thread.is_alive():
+        with MERGE_LOCK:
+            st = dict(MERGE_TASKS.get(task_id, {}))
+        cur_pct = float(st.get("progress") or 0.0)
+        speed = str(st.get("speed") or "-")
+        msg = str(st.get("message") or "")
+        if progress_callback and (cur_pct != last_pct or cur_pct == 100):
+            last_pct = cur_pct
+            progress_callback(cur_pct, speed, msg)
+        time.sleep(0.15)
+
+    thread.join(timeout=2.0)
+
+    with MERGE_LOCK:
+        final_st = dict(MERGE_TASKS.get(task_id, {}))
+
+    if final_st.get("status") == "error":
+        raise RuntimeError(final_st.get("message") or "Lỗi ghép video")
+
+    out_p = final_st.get("output_path")
+    if out_p and Path(out_p).exists():
+        return Path(out_p)
+    raise RuntimeError(final_st.get("message") or "Không tạo được file video đầu ra")
+
+
+
