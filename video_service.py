@@ -880,9 +880,13 @@ def run_single_pass_encode(
 
     batch_dur = sum(info["effective_duration"] for info in batch_infos)
 
+    has_nvenc = any("nvenc" in f for f in enc_flags)
     cmd = [ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning"]
     for f in batch_files:
-        cmd.extend(["-i", str(f)])
+        if has_nvenc:
+            cmd.extend(["-hwaccel", "cuda", "-i", str(f)])
+        else:
+            cmd.extend(["-i", str(f)])
 
     filter_flag = get_filter_complex_file_flag(ffmpeg_bin)
     cmd.extend([
@@ -1283,8 +1287,9 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
 
         ffmpeg_bin = get_ffmpeg_binary()
 
-        # Check if we can perform ultra-fast Lossless Stream Copy (100x-300x speed)
-        if can_use_lossless_stream_copy(probed_infos, options, color_filter_str, audio_filter_str):
+        # Stream copy is only used if explicitly requested (to prevent seeking A/V desync)
+        use_stream_copy = options.get("stream_copy") in (True, "true", "1", 1)
+        if use_stream_copy and can_use_lossless_stream_copy(probed_infos, options, color_filter_str, audio_filter_str):
             update_task(
                 message=f"Đang ghép siêu tốc Stream Copy ({len(valid_files)} video, giữ 100% chất lượng gốc)...",
                 gpu_encoder="Lossless Stream Copy (Siêu tốc 100x-300x)"
