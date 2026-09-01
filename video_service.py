@@ -336,11 +336,56 @@ def get_nvidia_gpu_model_name() -> str:
     return ""
 
 
+def ensure_cuda_ffmpeg_on_colab():
+    """If running in Linux with NVIDIA GPU and default FFmpeg lacks NVENC, auto-install CUDA-enabled FFmpeg."""
+    if sys.platform != "linux":
+        return
+    if not shutil.which("nvidia-smi"):
+        return
+    try:
+        r = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2)
+        if r.returncode != 0:
+            return
+    except Exception:
+        return
+
+    ffmpeg_bin = get_ffmpeg_binary()
+    try:
+        r = subprocess.run([ffmpeg_bin, "-encoders"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3)
+        if "h264_nvenc" in r.stdout:
+            return
+    except Exception:
+        pass
+
+    print("\n⚡ [GPU T4 Setup] Phát hiện card NVIDIA GPU nhưng FFmpeg mặc định chưa có module NVENC.")
+    print("⏳ Đang tự động nạp FFmpeg CUDA / NVENC (chỉ mất ~5-10s)...")
+    try:
+        temp_dir = Path("/tmp/colab-ffmpeg-cuda")
+        if not temp_dir.exists():
+            subprocess.run(["git", "clone", "-q", "https://github.com/rokibulislaam/colab-ffmpeg-cuda.git", str(temp_dir)], timeout=30)
+        if temp_dir.exists():
+            for binary in ["ffmpeg", "ffprobe"]:
+                src = temp_dir / "bin" / binary
+                if src.exists():
+                    for dest_dir in [Path("/usr/local/bin"), Path("/usr/bin")]:
+                        try:
+                            dest = dest_dir / binary
+                            shutil.copy2(src, dest)
+                            os.chmod(dest, 0o755)
+                        except Exception:
+                            pass
+            print("✅ Đã kích hoạt thành công FFmpeg CUDA & NVIDIA NVENC!\n")
+    except Exception as exc:
+        print(f"⚠️ Không thể tải FFmpeg CUDA: {exc}\n")
+
+
 def detect_available_gpu_encoders() -> Dict[str, Any]:
     """Dynamically test and detect available hardware GPU encoders (NVIDIA NVENC, Intel QSV, AMD AMF, Apple VideoToolbox, etc.)."""
     global _DETECTED_GPU_ENCODERS
     if _DETECTED_GPU_ENCODERS is not None:
         return _DETECTED_GPU_ENCODERS
+
+    ensure_cuda_ffmpeg_on_colab()
 
     ffmpeg_bin = get_ffmpeg_binary()
     encoders = set()
