@@ -105,20 +105,8 @@ def natural_sort_key(s: str) -> list:
 
 
 def get_filter_complex_file_flag(ffmpeg_bin: str) -> str:
-    """Return '-/filter_complex' for FFmpeg >= 7.0 (to avoid deprecation warnings), or '-filter_complex_script' for older versions."""
-    try:
-        startupinfo = None
-        if sys.platform == "win32":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-        res = subprocess.run([ffmpeg_bin, "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo, timeout=5)
-        m = re.search(r"ffmpeg version (?:n|N|v)?(\d+)", res.stdout)
-        if m and int(m.group(1)) >= 7:
-            return "-/filter_complex"
-    except Exception:
-        pass
-    return "-/filter_complex"
+    """Return '-filter_complex_script' for universal compatibility across all FFmpeg versions on Windows, Linux, and Colab."""
+    return "-filter_complex_script"
 
 
 def probe_video_info(file_path: Path) -> Dict[str, Any]:

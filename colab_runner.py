@@ -60,18 +60,26 @@ def check_and_setup_device(device_id: str = "", install_id: str = ""):
         except Exception:
             cfg = {}
 
-    d_id = device_id or os.getenv("DUANJU_DEVICE_ID") or cfg.get("device_id", "")
-    i_id = install_id or os.getenv("DUANJU_INSTALL_ID") or cfg.get("install_id", "")
+    d_id = device_id or os.getenv("DUANJU_DEVICE_ID") or str(cfg.get("device_id", ""))
+    i_id = install_id or os.getenv("DUANJU_INSTALL_ID") or str(cfg.get("install_id", ""))
 
     if not d_id or not i_id:
-        print("[Device] Chua cau hinh device_id / install_id. Dang tu dong khoi tao thiet bi...")
+        print("[Device] Chưa có device_id / install_id. Đang tự động đăng ký thiết bị mới...")
         try:
-            from liushen import device_register
-            # If device_register runs on import or provides registered data
-            # Alternatively use a default valid device payload
-            print("[Device] Ban co the nhap device_id va install_id tren giao dien Web UI hoac truyen tham so.")
+            from liushen.device_register import device_register
+            res = device_register()
+            d_id = str(res.get("device_id", ""))
+            i_id = str(res.get("install_id", ""))
+            if d_id and i_id:
+                cfg["device_id"] = d_id
+                cfg["install_id"] = i_id
+                cfg["platform"] = "android"
+                config_file.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+                os.environ["DUANJU_DEVICE_ID"] = d_id
+                os.environ["DUANJU_INSTALL_ID"] = i_id
+                print(f"[Device] Đăng ký thiết bị thành công: device_id={d_id[:4]}***{d_id[-3:] if len(d_id) > 6 else ''}")
         except Exception as exc:
-            print(f"[Device] Chu y: {exc}")
+            print(f"[Device] Chú ý: Không thể tự động đăng ký ({exc}). Bạn có thể nhập ID trên Web UI tại tab Cài đặt.")
     else:
         cfg["device_id"] = d_id
         cfg["install_id"] = i_id
@@ -79,7 +87,7 @@ def check_and_setup_device(device_id: str = "", install_id: str = ""):
         config_file.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
         os.environ["DUANJU_DEVICE_ID"] = d_id
         os.environ["DUANJU_INSTALL_ID"] = i_id
-        print(f"[Device] Da cau hinh thiet bi: device_id={d_id[:4]}***{d_id[-3:] if len(d_id) > 6 else ''}")
+        print(f"[Device] Đã cấu hình thiết bị: device_id={d_id[:4]}***{d_id[-3:] if len(d_id) > 6 else ''}")
 
 
 def start_cloudflare_tunnel(port: int = 5000) -> str:

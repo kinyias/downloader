@@ -237,8 +237,31 @@ def device_register():
         # "device_id": "",
     }
 
-    post_device_register(dev_info,extra)
+    post_device_register(dev_info, extra)
     send_app_alert_check(dev_info)
 
+    d_id = str(dev_info['device'].get('deviceId', ''))
+    i_id = str(dev_info['device'].get('iid', ''))
+    if d_id and i_id:
+        try:
+            from pathlib import Path
+            root_dir = Path(__file__).resolve().parent.parent
+            cfg_path = root_dir / "config.json"
+            cfg = {}
+            if cfg_path.exists():
+                try:
+                    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                except Exception:
+                    cfg = {}
+            cfg["device_id"] = d_id
+            cfg["install_id"] = i_id
+            cfg["platform"] = "android"
+            cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"\n[Device Register] Đã tự động lưu cấu hình thiết bị vào {cfg_path.name}: device_id={d_id}, install_id={i_id}")
+        except Exception:
+            pass
+    return {"device_id": d_id, "install_id": i_id}
 
-device_register()
+
+if __name__ == "__main__":
+    device_register()
