@@ -1028,6 +1028,156 @@ def run_single_pass_encode(
                 pass
 
 
+def can_use_lossless_stream_copy(
+    probed_infos: List[Dict[str, Any]],
+    options: Dict[str, Any],
+    color_filter_str: str,
+    audio_filter_str: str,
+) -> bool:
+    """Check if videos can be concatenated losslessly via stream copy (0 re-encoding, 100x-300x speed)."""
+    cut_end = float(options.get("cut_end_seconds") or 0.0)
+    mirror = options.get("mirror") in (True, "true", "True", "1", 1)
+    force_reencode = options.get("force_reencode") in (True, "true", "True", "1", 1)
+
+    if cut_end > 0 or mirror or force_reencode or color_filter_str or audio_filter_str:
+        return False
+    if not probed_infos or len(probed_infos) < 1:
+        return False
+
+    first = probed_infos[0]
+    f_codec = first.get("codec")
+    f_w = first.get("width")
+    f_h = first.get("height")
+    f_acodec = first.get("audio_codec")
+
+    for info in probed_infos[1:]:
+        if (info.get("codec") != f_codec or
+            info.get("width") != f_w or
+            info.get("height") != f_h or
+            info.get("audio_codec") != f_acodec):
+            return False
+
+    return True
+
+
+def run_lossless_concat_demuxer(
+    valid_files: List[Path],
+    output_path: Path,
+    ffmpeg_bin: str,
+    task_id: str,
+    update_task: Callable[..., None],
+    total_duration: float,
+) -> None:
+    """Concatenate videos instantly using FFmpeg concat demuxer with -c copy (100x-300x speed, 0 quality loss)."""
+    temp_dir = output_path.parent
+    list_file = temp_dir / f"concat_list_{uuid.uuid4().hex[:8]}.txt"
+
+    is_gdrive = str(output_path).startswith("/content/drive")
+    if is_gdrive:
+        actual_output_target = Path("/tmp") / f"nvme_concat_{uuid.uuid4().hex[:8]}_{output_path.name}"
+    else:
+        actual_output_target = output_path
+
+    try:
+        with open(list_file, "w", encoding="utf-8") as lf:
+            for f in valid_files:
+                escaped = str(f).replace("'", "'\\''")
+                lf.write(f"file '{escaped}'\n")
+
+        cmd = [
+            ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+            "-f", "concat", "-safe", "0",
+            "-i", str(list_file),
+            "-c", "copy",
+            "-fflags", "+genpts+discardcorrupt",
+            "-avoid_negative_ts", "make_zero",
+            "-movflags", "+faststart",
+            "-progress", "pipe:1",
+            str(actual_output_target),
+        ]
+
+        startupinfo = None
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            startupinfo=startupinfo,
+        )
+        update_task(proc=proc)
+
+        while True:
+            with MERGE_LOCK:
+                task_status = MERGE_TASKS.get(task_id, {})
+            if task_status.get("cancelled"):
+                proc.terminate()
+                raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+
+            line = proc.stdout.readline()
+            if not line and proc.poll() is not None:
+                break
+
+            line_str = line.strip()
+            if not line_str or "=" not in line_str:
+                continue
+
+            k, v = line_str.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+
+            if k == "out_time_us":
+                try:
+                    out_us = int(v)
+                    cur_sec = min(total_duration, out_us / 1000000.0)
+                    pct = min(99.0, max(0.0, (cur_sec / total_duration) * 100.0))
+                    update_task(
+                        progress=round(pct, 1),
+                        current_duration=cur_sec,
+                        current_duration_str=format_duration(cur_sec),
+                    )
+                except Exception:
+                    pass
+            elif k == "speed":
+                speed_str = v.replace("x", "").strip()
+                try:
+                    speed_val = float(speed_str)
+                    if speed_val > 0:
+                        rem_sec = max(0, (total_duration - cur_sec) / speed_val)
+                        update_task(speed=f"{speed_val:.1f}x", eta=f"{int(rem_sec)}s")
+                except Exception:
+                    update_task(speed=v)
+
+        proc.wait()
+
+        if proc.returncode != 0:
+            err = proc.stderr.read() if proc.stderr else "Lỗi concat demuxer"
+            raise RuntimeError(f"Concat stream copy thất bại: {err[:300]}")
+
+        if is_gdrive and actual_output_target.exists():
+            update_task(message="Đang chuyển file video hoàn tất vào Google Drive...")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(actual_output_target), str(output_path))
+
+    finally:
+        try:
+            if list_file.exists():
+                list_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        if is_gdrive and actual_output_target.exists():
+            try:
+                actual_output_target.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -> None:
     """Core video merge execution function running in background thread."""
     with MERGE_LOCK:
@@ -1132,6 +1282,40 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         )
 
         ffmpeg_bin = get_ffmpeg_binary()
+
+        # Check if we can perform ultra-fast Lossless Stream Copy (100x-300x speed)
+        if can_use_lossless_stream_copy(probed_infos, options, color_filter_str, audio_filter_str):
+            update_task(
+                message=f"Đang ghép siêu tốc Stream Copy ({len(valid_files)} video, giữ 100% chất lượng gốc)...",
+                gpu_encoder="Lossless Stream Copy (Siêu tốc 100x-300x)"
+            )
+            try:
+                run_lossless_concat_demuxer(
+                    valid_files,
+                    output_path,
+                    ffmpeg_bin,
+                    task_id,
+                    update_task,
+                    total_effective_duration,
+                )
+                with MERGE_LOCK:
+                    task_status = MERGE_TASKS.get(task_id, {})
+                if task_status.get("cancelled"):
+                    raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+
+                out_size = output_path.stat().st_size if output_path.exists() else 0
+                update_task(
+                    status="done",
+                    progress=100,
+                    eta="0s",
+                    message="Ghép video siêu tốc thành công!",
+                    output_size=out_size,
+                    output_size_str=format_size(out_size),
+                )
+                return
+            except Exception as stream_copy_err:
+                print(f"[Stream Copy Fallback] Fallback to GPU encoding: {stream_copy_err}")
+                update_task(message="Đang chuyển sang bộ mã hóa GPU để ghép...")
 
         # Direct Single-Pass Video & Audio Pipeline (100% A/V Sync, No Glitches)
         # Determine target resolution & FPS to guarantee uniform input pads to concat filter
