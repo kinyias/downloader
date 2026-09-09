@@ -977,6 +977,44 @@
               </button>
             </div>
           </div>
+
+          <!-- storage.to Links Section (Shown when uploaded) -->
+          <div id="mergeStorageToSection" class="pt-2 border-t border-indigo-200/80 hidden flex-col gap-2">
+            <div class="text-xs font-bold text-pink-600 flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              <span>Liên kết lưu trữ trực tuyến (storage.to):</span>
+            </div>
+            <!-- Video URL Row -->
+            <div id="mergeVideoUrlRow" class="hidden items-center justify-between bg-white p-2 rounded-lg border border-pink-200 gap-2">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-700 shrink-0">VIDEO</span>
+                <a id="mergeVideoUrlLink" href="#" target="_blank" class="text-xs text-indigo-600 hover:underline truncate font-mono select-all"></a>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <a id="mergeOpenVideoUrlBtn" href="#" target="_blank" class="px-2.5 py-1 text-xs bg-pink-50 text-pink-600 hover:bg-pink-100 font-semibold rounded-md border border-pink-200 flex items-center gap-1">
+                  <span>Mở Link</span>
+                </a>
+                <button id="mergeCopyVideoUrlBtn" type="button" class="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-md">
+                  Sao chép
+                </button>
+              </div>
+            </div>
+            <!-- Subtitle SRT Row -->
+            <div id="mergeSrtUrlRow" class="hidden items-center justify-between bg-white p-2 rounded-lg border border-amber-200 gap-2">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 shrink-0">PHỤ ĐỀ SRT</span>
+                <a id="mergeSrtUrlLink" href="#" target="_blank" class="text-xs text-indigo-600 hover:underline truncate font-mono select-all"></a>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <a id="mergeOpenSrtUrlBtn" href="#" target="_blank" class="px-2.5 py-1 text-xs bg-amber-50 text-amber-600 hover:bg-amber-100 font-semibold rounded-md border border-amber-200 flex items-center gap-1">
+                  <span>Tải Phụ Đề</span>
+                </a>
+                <button id="mergeCopySrtUrlBtn" type="button" class="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-md">
+                  Sao chép
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -2370,6 +2408,10 @@
       $('mergeProgressContainer').classList.remove('flex');
       $('mergeDoneActions').classList.add('hidden');
       $('mergeDoneActions').classList.remove('flex');
+      if ($('mergeStorageToSection')) {
+        $('mergeStorageToSection').classList.add('hidden');
+        $('mergeStorageToSection').classList.remove('flex');
+      }
       $('mergeCancelBtn').classList.add('hidden');
       if (!currentMergeTaskId) setMergeButtonLoading(false);
 
@@ -2794,6 +2836,10 @@
         $('mergeProgressContainer').classList.add('flex');
         $('mergeDoneActions').classList.add('hidden');
         $('mergeDoneActions').classList.remove('flex');
+        if ($('mergeStorageToSection')) {
+          $('mergeStorageToSection').classList.add('hidden');
+          $('mergeStorageToSection').classList.remove('flex');
+        }
         $('mergeCancelBtn').classList.remove('hidden');
         setMergeButtonLoading(true);
 
@@ -2862,6 +2908,10 @@
       $('mergeProgressContainer').classList.add('flex');
       $('mergeDoneActions').classList.add('hidden');
       $('mergeDoneActions').classList.remove('flex');
+      if ($('mergeStorageToSection')) {
+        $('mergeStorageToSection').classList.add('hidden');
+        $('mergeStorageToSection').classList.remove('flex');
+      }
       $('mergeCancelBtn').classList.remove('hidden');
       setMergeButtonLoading(true);
 
@@ -2949,6 +2999,31 @@
         setMergeButtonLoading(false);
         $('mergeDoneActions').classList.remove('hidden');
         $('mergeDoneActions').classList.add('flex');
+
+        // Display storage.to links if available
+        if (st.video_url || st.srt_url) {
+          if ($('mergeStorageToSection')) {
+            $('mergeStorageToSection').classList.remove('hidden');
+            $('mergeStorageToSection').classList.add('flex');
+          }
+          if (st.video_url && $('mergeVideoUrlRow')) {
+            $('mergeVideoUrlRow').classList.remove('hidden');
+            $('mergeVideoUrlRow').classList.add('flex');
+            $('mergeVideoUrlLink').textContent = st.video_url;
+            $('mergeVideoUrlLink').href = st.video_url;
+            $('mergeOpenVideoUrlBtn').href = st.video_url;
+            $('mergeCopyVideoUrlBtn').onclick = () => copyToClipboard(st.video_url, 'Đã sao chép link video storage.to');
+          }
+          if (st.srt_url && $('mergeSrtUrlRow')) {
+            $('mergeSrtUrlRow').classList.remove('hidden');
+            $('mergeSrtUrlRow').classList.add('flex');
+            $('mergeSrtUrlLink').textContent = st.srt_url;
+            $('mergeSrtUrlLink').href = st.srt_url;
+            $('mergeOpenSrtUrlBtn').href = st.srt_url;
+            $('mergeCopySrtUrlBtn').onclick = () => copyToClipboard(st.srt_url, 'Đã sao chép link phụ đề storage.to');
+          }
+        }
+
         toast(`Ghép thành công ${st.file_count || ''} tập video!`, 'success');
 
         // Refresh video list in modal

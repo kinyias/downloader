@@ -620,6 +620,11 @@ def api_merge_start():
         "format": str(payload.get("format", "mp4")).strip(),
         "output_dir": str(payload.get("output_dir", "")).strip(),
         "output_name": str(payload.get("output_name", "")).strip(),
+        "upload_to_storage": payload.get("upload_to_storage", True) in (True, "true", "True", 1, "1", "on"),
+        "generate_subtitles": payload.get("generate_subtitles", True) in (True, "true", "True", 1, "1", "on"),
+        "storage_token": str(payload.get("storage_token", "")).strip(),
+        "capcut_tdid": str(payload.get("capcut_tdid", "")).strip(),
+        "source_lang": str(payload.get("source_lang", "auto")).strip(),
     }
 
     try:
@@ -655,6 +660,11 @@ def api_merge_start_online():
         "format": str(payload.get("format", "mp4")).strip(),
         "output_dir": str(payload.get("output_dir", "")).strip(),
         "output_name": str(payload.get("output_name", "")).strip(),
+        "upload_to_storage": payload.get("upload_to_storage", True) in (True, "true", "True", 1, "1", "on"),
+        "generate_subtitles": payload.get("generate_subtitles", True) in (True, "true", "True", 1, "1", "on"),
+        "storage_token": str(payload.get("storage_token", "")).strip(),
+        "capcut_tdid": str(payload.get("capcut_tdid", "")).strip(),
+        "source_lang": str(payload.get("source_lang", "auto")).strip(),
     }
 
     try:

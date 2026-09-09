@@ -634,6 +634,7 @@ def list_directory_videos(dir_path: Path) -> List[Dict[str, Any]]:
 
 MERGE_TASKS: Dict[str, Dict[str, Any]] = {}
 MERGE_LOCK = threading.Lock()
+LAST_MERGE_RESULT: Dict[str, Any] = {}
 
 
 def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
@@ -643,6 +644,12 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
         if task:
             return dict(task)
     return None
+
+
+def get_last_merge_result() -> Dict[str, Any]:
+    """Retrieve result of the most recently finished merge job."""
+    with MERGE_LOCK:
+        return dict(LAST_MERGE_RESULT)
 
 
 def cancel_merge_task(task_id: str) -> bool:
@@ -1218,10 +1225,133 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
 
         out_size = output_path.stat().st_size if output_path.exists() else 0
         update_task(
+            progress=100,
+            eta="0s",
+            message="Ghép video thành công! Đang chuẩn bị tải lên storage.to...",
+            output_size=out_size,
+            output_size_str=format_size(out_size),
+        )
+
+        upload_to_storage = options.get("upload_to_storage", True) in (True, "true", "True", 1, "1")
+        generate_subtitles = options.get("generate_subtitles", True) in (True, "true", "True", 1, "1")
+        storage_api_token = options.get("storage_token") or os.getenv("STORAGE_TO_API_TOKEN")
+
+        video_url = None
+        srt_url = None
+        srt_path = None
+        storage_info = {}
+
+        # 1. Tải video đã ghép lên storage.to
+        if upload_to_storage and output_path.exists():
+            try:
+                update_task(message="Đang kết nối và tải video lên storage.to...")
+                from storage_service import upload_file_to_storage_to
+
+                def _upload_video_cb(pct, msg):
+                    update_task(
+                        message=f"Đang tải video lên storage.to ({pct:.0f}%)...",
+                        upload_progress=pct,
+                    )
+
+                storage_res = upload_file_to_storage_to(
+                    output_path,
+                    api_token=storage_api_token,
+                    on_progress=_upload_video_cb,
+                )
+                video_url = storage_res.get("url")
+                storage_info["video"] = storage_res
+                update_task(
+                    video_url=video_url,
+                    message=f"Đã tải video lên storage.to: {video_url}",
+                )
+            except Exception as up_err:
+                print(f"[Storage.to Error] Lỗi tải video lên storage.to: {up_err}", flush=True)
+                update_task(upload_video_error=str(up_err))
+
+        # 2. Nhận diện giọng nói với CapCut ASR & xuất file phụ đề .srt
+        if generate_subtitles and output_path.exists():
+            try:
+                update_task(message="Đang trích xuất phụ đề với CapCut ASR...")
+                from helper_service import transcribe_video_to_srt
+
+                def _asr_cb(msg):
+                    update_task(message=msg)
+
+                capcut_tdid = options.get("capcut_tdid")
+                source_lang = options.get("source_lang", "auto")
+                srt_file, segs = transcribe_video_to_srt(
+                    str(output_path),
+                    engine="capcut",
+                    source_lang=source_lang,
+                    tdid=capcut_tdid,
+                    ffmpeg_bin=ffmpeg_bin,
+                    on_status=_asr_cb,
+                )
+                srt_path = str(srt_file)
+                update_task(
+                    srt_path=srt_path,
+                    subtitle_segments_count=len(segs),
+                    message=f"Đã trích xuất phụ đề ({len(segs)} câu): {srt_file.name}",
+                )
+
+                # 3. Tải file phụ đề (.srt) lên storage.to
+                if upload_to_storage and srt_file.exists():
+                    try:
+                        update_task(message="Đang tải file phụ đề (.srt) lên storage.to...")
+                        from storage_service import upload_file_to_storage_to
+
+                        def _upload_srt_cb(pct, msg):
+                            update_task(message=f"Đang tải phụ đề lên storage.to ({pct:.0f}%)...")
+
+                        srt_storage_res = upload_file_to_storage_to(
+                            srt_file,
+                            api_token=storage_api_token,
+                            on_progress=_upload_srt_cb,
+                        )
+                        srt_url = srt_storage_res.get("url")
+                        storage_info["subtitle"] = srt_storage_res
+                        update_task(
+                            srt_url=srt_url,
+                            message=f"Đã tải phụ đề lên storage.to: {srt_url}",
+                        )
+                    except Exception as srt_up_err:
+                        print(f"[Storage.to Error] Lỗi tải phụ đề: {srt_up_err}", flush=True)
+                        update_task(upload_srt_error=str(srt_up_err))
+
+            except Exception as asr_err:
+                print(f"[CapCut ASR Error] Lỗi nhận diện CapCut ASR: {asr_err}", flush=True)
+                update_task(asr_error=str(asr_err))
+
+        final_msg = "Ghép video thành công!"
+        if video_url and srt_url:
+            final_msg = "Ghép video & trích xuất phụ đề thành công! Đã tải lên storage.to"
+        elif video_url:
+            final_msg = "Ghép video thành công! Đã tải lên storage.to"
+
+        global LAST_MERGE_RESULT
+        result_dict = {
+            "task_id": task_id,
+            "output_path": str(output_path),
+            "video_url": video_url,
+            "srt_url": srt_url,
+            "srt_path": srt_path,
+            "storage_info": storage_info,
+            "output_size": out_size,
+            "output_size_str": format_size(out_size),
+        }
+        with MERGE_LOCK:
+            LAST_MERGE_RESULT = dict(result_dict)
+            options.update(result_dict)
+
+        update_task(
             status="done",
             progress=100,
             eta="0s",
-            message="Ghép video thành công!",
+            message=final_msg,
+            video_url=video_url,
+            srt_url=srt_url,
+            srt_path=srt_path,
+            storage_info=storage_info,
             output_size=out_size,
             output_size_str=format_size(out_size),
         )
@@ -1402,14 +1532,16 @@ def merge_videos_sync(
     thread.start()
 
     last_pct = -1.0
+    last_msg = ""
     while thread.is_alive():
         with MERGE_LOCK:
             st = dict(MERGE_TASKS.get(task_id, {}))
         cur_pct = float(st.get("progress") or 0.0)
         speed = str(st.get("speed") or "-")
         msg = str(st.get("message") or "")
-        if progress_callback and (cur_pct != last_pct or cur_pct == 100):
+        if progress_callback and (cur_pct != last_pct or msg != last_msg or cur_pct == 100):
             last_pct = cur_pct
+            last_msg = msg
             progress_callback(cur_pct, speed, msg)
         time.sleep(0.15)
 
@@ -1417,6 +1549,9 @@ def merge_videos_sync(
 
     with MERGE_LOCK:
         final_st = dict(MERGE_TASKS.get(task_id, {}))
+
+    # Propagate all result attributes back to options dict
+    options.update(final_st)
 
     if final_st.get("status") == "error":
         raise RuntimeError(final_st.get("message") or "Lỗi ghép video")

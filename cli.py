@@ -376,9 +376,12 @@ def cli_merge_folder(
     gpu_pref: str = "nvenc",
     color_filter: str = "none",
     audio_effect: str = "none",
+    upload_to_storage: bool = True,
+    generate_subtitles: bool = True,
 ) -> Optional[Path]:
     """
-    Merge all video files in a folder into one continuous video with live CLI progress bar.
+    Merge all video files in a folder into one continuous video with live CLI progress bar,
+    then automatically upload to storage.to and extract SRT subtitles with CapCut ASR.
     """
     folder = Path(folder_path).resolve()
     if not folder.exists() or not folder.is_dir():
@@ -416,6 +419,8 @@ def cli_merge_folder(
     print(f"⚡ Bộ mã hóa dự kiến   : \033[1;32m{primary_gpu}\033[0m")
     print(f"✂️ Cắt đuôi mỗi tập      : {cut_end_seconds}s")
     print(f"🪞 Lật hình (Mirror)     : {'Bật' if mirror else 'Tắt'}")
+    print(f"☁️ Upload storage.to    : {'Bật' if upload_to_storage else 'Tắt'}")
+    print(f"🎙️ CapCut ASR (Phụ đề)  : {'Bật' if generate_subtitles else 'Tắt'}")
     print(f"💾 File đầu ra           : \033[1;36m{final_output}\033[0m")
     print("=" * 65 + "\n")
 
@@ -434,11 +439,13 @@ def cli_merge_folder(
         "format": "mp4",
         "output_dir": str(out_folder),
         "output_name": output_name,
+        "upload_to_storage": upload_to_storage,
+        "generate_subtitles": generate_subtitles,
     }
 
     merge_pbar = tqdm(
         total=100,
-        desc="🎬 Đang ghép video",
+        desc="🎬 Đang xử lý video",
         unit="%",
         bar_format="{l_bar}\033[1;36m{bar}\033[0m| {n_fmt}/100% [{elapsed}<{remaining}] {postfix}",
         ncols=100,
@@ -452,7 +459,7 @@ def cli_merge_folder(
         if speed and speed != "-":
             postfix_parts.append(f"Tốc độ: {speed}")
         if msg:
-            short_msg = msg if len(msg) < 35 else msg[:32] + "..."
+            short_msg = msg if len(msg) < 40 else msg[:37] + "..."
             postfix_parts.append(short_msg)
         merge_pbar.set_postfix_str(" | ".join(postfix_parts))
 
@@ -463,11 +470,22 @@ def cli_merge_folder(
         merge_pbar.close()
 
         file_size_str = video_service.format_size(merged_path.stat().st_size)
-        print("\n" + "=" * 65)
-        print("🎉 \033[1;32mGHÉP VIDEO THÀNH CÔNG RỰC RỠ!\033[0m")
-        print(f"📁 Tệp hoàn chỉnh: \033[1;36m{merged_path}\033[0m")
-        print(f"📦 Dung lượng    : {file_size_str}")
-        print("=" * 65 + "\n")
+        video_url = options.get("video_url")
+        srt_url = options.get("srt_url")
+        srt_path = options.get("srt_path")
+
+        print("\n" + "=" * 70)
+        print("🎉 \033[1;32mGHÉP VIDEO & XUẤT BẢN THÀNH CÔNG RỰC RỠ!\033[0m")
+        print("=" * 70)
+        print(f"📁 Video cục bộ          : \033[1;36m{merged_path}\033[0m")
+        print(f"📦 Dung lượng            : {file_size_str}")
+        if video_url:
+            print(f"🌐 Link Video storage.to : \033[1;35m{video_url}\033[0m")
+        if srt_path:
+            print(f"📝 Phụ đề SRT cục bộ     : \033[1;36m{srt_path}\033[0m")
+        if srt_url:
+            print(f"🌐 Link Subtitle storage.to: \033[1;35m{srt_url}\033[0m")
+        print("=" * 70 + "\n")
         return merged_path
 
     except Exception as exc:
@@ -662,6 +680,8 @@ def main():
     p_dl.add_argument("--save-dir", type=str, default="", help="Thư mục lưu video (mặc định: Google Drive hoặc ./src)")
     p_dl.add_argument("--codec", type=str, default="h264", choices=["h264", "hevc"], help="Định dạng codec video")
     p_dl.add_argument("--gpu", type=str, default="nvenc", choices=["nvenc", "cpu", "qsv", "amf"], help="Bộ mã hóa phần cứng")
+    p_dl.add_argument("--no-upload", action="store_true", help="Không tự động tải lên storage.to sau khi ghép")
+    p_dl.add_argument("--no-asr", action="store_true", help="Không tự động trích xuất phụ đề CapCut ASR")
 
     # Command: search
     p_sc = subparsers.add_parser("search", help="Tìm kiếm phim theo từ khóa")
@@ -677,6 +697,8 @@ def main():
     p_mg.add_argument("--output-dir", type=str, default="", help="Thư mục xuất file sau khi ghép")
     p_mg.add_argument("--codec", type=str, default="h264", choices=["h264", "hevc"], help="Định dạng codec video")
     p_mg.add_argument("--gpu", type=str, default="nvenc", choices=["nvenc", "cpu", "qsv", "amf"], help="Bộ mã hóa phần cứng")
+    p_mg.add_argument("--no-upload", action="store_true", help="Không tự động tải lên storage.to sau khi ghép")
+    p_mg.add_argument("--no-asr", action="store_true", help="Không tự động trích xuất phụ đề CapCut ASR")
 
     # Command: check-gpu
     subparsers.add_parser("check-gpu", help="Kiểm tra chi tiết GPU & bộ mã hóa NVIDIA NVENC")
@@ -724,6 +746,8 @@ def main():
             mirror=args.mirror,
             codec=args.codec,
             gpu_pref=args.gpu,
+            upload_to_storage=not args.no_upload,
+            generate_subtitles=not args.no_asr,
         )
 
     elif args.command == "register":
