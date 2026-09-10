@@ -1429,21 +1429,30 @@ def execute_online_merge_job(task_id: str, video_ids: List[str], options: Dict[s
         downloaded_files = []
         total_vids = len(stream_infos)
 
-        # 2. Download and decrypt each episode to temp_dir
-        for idx, sinfo in enumerate(stream_infos, 1):
+        # 2. Multi-threaded download and decrypt each episode to temp_dir
+        concurrency = int(options.get("concurrency") or options.get("threads") or options.get("workers") or 5)
+        concurrency = max(1, min(concurrency, 16))
+
+        update_task(
+            message=f"Đang tải đa luồng {total_vids} tập ({concurrency} luồng đồng thời)...",
+            progress=5,
+        )
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        dl_lock = threading.Lock()
+        downloaded_map: Dict[int, str] = {}
+        completed_count = 0
+
+        def _download_stream_worker(idx: int, sinfo: Dict[str, Any]) -> str:
+            nonlocal completed_count
             with MERGE_LOCK:
                 if MERGE_TASKS.get(task_id, {}).get("cancelled"):
-                    raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+                    return ""
 
             vid = sinfo.get("video_id") or f"ep_{idx}"
-            update_task(
-                message=f"Đang tải & giải mã tập {idx}/{total_vids}...",
-                progress=round(((idx - 1) / total_vids) * 35, 1)  # 0-35% for download phase
-            )
-
             target_file = temp_dir / f"ep_{idx:03d}_{vid}.mp4"
-
             content_key = bytes.fromhex(sinfo["content_key_hex"]) if sinfo.get("content_key_hex") else None
+
             parser_module.stream_copy_video_with_ffmpeg(
                 request_or_domain="http://127.0.0.1",
                 video_url=sinfo["url"],
@@ -1451,10 +1460,36 @@ def execute_online_merge_job(task_id: str, video_ids: List[str], options: Dict[s
                 filename=target_file.name,
                 save_dir=str(temp_dir),
             )
-            if target_file.exists() and target_file.stat().st_size > 0:
-                downloaded_files.append(str(target_file))
-            else:
-                raise RuntimeError(f"Tải tập {idx} thất bại (file rỗng hoặc không tồn tại).")
+
+            if not (target_file.exists() and target_file.stat().st_size > 0):
+                raise RuntimeError(f"Tải tập {idx} ({vid}) thất bại (file rỗng hoặc không tải được).")
+
+            with dl_lock:
+                downloaded_map[idx] = str(target_file)
+                completed_count += 1
+                prog = round(5 + ((completed_count / total_vids) * 30), 1)  # 5% to 35%
+                update_task(
+                    message=f"Đang tải đa luồng ({concurrency} luồng): {completed_count}/{total_vids} tập hoàn tất...",
+                    progress=prog,
+                )
+            return str(target_file)
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            future_to_idx = {
+                executor.submit(_download_stream_worker, idx, sinfo): idx
+                for idx, sinfo in enumerate(stream_infos, 1)
+            }
+            for fut in as_completed(future_to_idx):
+                with MERGE_LOCK:
+                    if MERGE_TASKS.get(task_id, {}).get("cancelled"):
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+                fut.result()
+
+        # Sort files in strict chronological order 1..N
+        downloaded_files = [downloaded_map[i] for i in range(1, total_vids + 1) if i in downloaded_map]
+        if len(downloaded_files) != total_vids:
+            raise RuntimeError(f"Chỉ tải thành công {len(downloaded_files)}/{total_vids} tập.")
 
         # 3. Now merge the downloaded files using the standard merge pipeline
         update_task(message="Đang tiến hành ghép các tập đã tải về...", progress=35)
@@ -1560,6 +1595,103 @@ def merge_videos_sync(
     if out_p and Path(out_p).exists():
         return Path(out_p)
     raise RuntimeError(final_st.get("message") or "Không tạo được file video đầu ra")
+
+
+def download_series_episodes_concurrent(
+    episodes: List[Dict[str, Any]],
+    series_id: str,
+    save_folder: Path,
+    clean_name: str,
+    concurrency: int = 5,
+    on_episode_finished: Optional[Callable[[int, int, Dict[str, Any], bool, Optional[str]], None]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None,
+) -> Tuple[List[Path], int, int]:
+    """
+    Download a list of episodes concurrently with ThreadPoolExecutor,
+    guaranteeing strict 1..N chronological ordering of the returned downloaded_files list.
+    Returns: (downloaded_files_ordered, success_count, fail_count)
+    """
+    import importlib
+    parser_module = importlib.import_module("1")
+
+    concurrency = max(1, min(int(concurrency or 5), 16))
+    save_folder = Path(save_folder).resolve()
+    save_folder.mkdir(parents=True, exist_ok=True)
+
+    # 1. Pre-resolve batch video models for fast connection reuse
+    vids = [ep.get("vid") for ep in episodes if ep.get("vid")]
+    if vids:
+        try:
+            parser_module.resolve_batch_video_models(vids, batch_size=30)
+        except Exception:
+            pass
+
+    downloaded_map: Dict[int, Path] = {}
+    lock = threading.Lock()
+    success_count = 0
+    fail_count = 0
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _worker(ep: Dict[str, Any]) -> Tuple[int, Optional[Path], bool, Optional[str]]:
+        if is_cancelled and is_cancelled():
+            return ep.get("episode_num", 1), None, False, "Cancelled"
+
+        vid = ep.get("vid")
+        ep_num = int(ep.get("episode_num") or ep.get("index") or 1)
+        filename = f"{clean_name}_Tap_{ep_num:03d}.mp4"
+        file_path = save_folder / filename
+
+        # Skip existing non-empty file
+        if file_path.exists() and file_path.stat().st_size > 50000:
+            return ep_num, file_path, True, None
+
+        try:
+            parser_module.handle_video_request(
+                vid,
+                series_id=series_id,
+                episode=ep_num,
+                filename=filename,
+                save_dir=str(save_folder),
+            )
+            if file_path.exists() and file_path.stat().st_size > 0:
+                return ep_num, file_path, True, None
+            else:
+                return ep_num, None, False, "File rỗng sau khi tải"
+        except Exception as exc:
+            return ep_num, None, False, str(exc)
+
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(_worker, ep) for ep in episodes]
+        for fut in as_completed(futures):
+            if is_cancelled and is_cancelled():
+                executor.shutdown(wait=False, cancel_futures=True)
+                break
+            try:
+                ep_num, fpath, ok, err_msg = fut.result()
+                with lock:
+                    if ok and fpath:
+                        downloaded_map[ep_num] = fpath
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                    if on_episode_finished:
+                        total = len(episodes)
+                        current_done = success_count + fail_count
+                        ep_item = next((e for e in episodes if int(e.get("episode_num") or e.get("index") or 0) == ep_num), {})
+                        on_episode_finished(current_done, total, ep_item, ok, err_msg)
+            except Exception:
+                with lock:
+                    fail_count += 1
+
+    # Preserve exact order
+    downloaded_files = []
+    for ep in episodes:
+        num = int(ep.get("episode_num") or ep.get("index") or 0)
+        if num in downloaded_map:
+            downloaded_files.append(downloaded_map[num])
+
+    return downloaded_files, success_count, fail_count
 
 
 

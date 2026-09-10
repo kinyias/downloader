@@ -19,7 +19,9 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from tqdm import tqdm
@@ -292,10 +294,11 @@ def cli_download_series(
     start_ep: Optional[int] = None,
     end_ep: Optional[int] = None,
     limit: Optional[int] = None,
+    threads: int = 5,
 ) -> Optional[Path]:
     """
-    Download selected episodes of a series with real-time tqdm progress bars,
-    with optional instant video merging.
+    Download selected episodes of a series with concurrent multi-threading
+    and real-time tqdm progress bars, with optional instant video merging.
     """
     ensure_device_configured()
 
@@ -304,6 +307,7 @@ def cli_download_series(
         print("❌ Mã Series ID không hợp lệ!")
         return None
 
+    threads = max(1, min(int(threads or 5), 16))
     save_base = Path(output_dir).resolve() if output_dir else get_default_download_dir()
     save_base.mkdir(parents=True, exist_ok=True)
 
@@ -365,6 +369,7 @@ def cli_download_series(
         print(f"🔢 TỔNG SỐ TẬP TẢI : \033[1;33m{total_eps} tập (Toàn bộ)\033[0m")
     else:
         print(f"🔢 SỐ TẬP ĐƯỢC CHỌN: \033[1;33m{len(episodes)} tập (Từ tập {min_ep} -> tập {max_ep} / Tổng: {total_eps} tập)\033[0m")
+    print(f"⚡ SỐ LUỒNG TẢI    : \033[1;36m{threads} luồng đồng thời\033[0m")
     print(f"📁 THƯ MỤC LƯU     : {series_folder}")
     if auto_merge:
         print(f"⚙️  TỰ ĐỘNG GHÉP    : Bật (Cắt đuôi: {cut_end_seconds}s | Lật hình: {'Có' if mirror else 'Không'})")
@@ -379,33 +384,36 @@ def cli_download_series(
         except Exception:
             pass
 
-    # Step 2: Download each episode with a progress bar
-    downloaded_files: List[Path] = []
+    # Step 2: Download episodes concurrently with ThreadPoolExecutor & tqdm progress bar
+    downloaded_map: Dict[int, Path] = {}
+    pbar_lock = threading.Lock()
     success_count = 0
     fail_count = 0
 
     pbar = tqdm(
-        episodes,
-        desc="📥 Đang tải các tập",
+        total=len(episodes),
+        desc=f"📥 Đang tải ({threads} luồng)",
         unit="tập",
         bar_format="{l_bar}\033[1;32m{bar}\033[0m| {n_fmt}/{total_fmt} tập [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
         ncols=100,
     )
 
-    for ep in pbar:
+    def _dl_worker(ep: Dict[str, Any]) -> None:
+        nonlocal success_count, fail_count
         vid = ep.get("vid")
-        ep_num = ep.get("episode_num", 1)
+        ep_num = int(ep.get("episode_num") or ep.get("index") or 1)
         filename = f"{clean_name}_Tap_{ep_num:03d}.mp4"
         file_path = series_folder / filename
+        dur_tag = f" [{ep.get('duration_str')}]" if ep.get("duration_str") else ""
 
-        dur_tag = f" [{ep.get('duration_str')}]" if ep.get('duration_str') else ""
-        pbar.set_postfix_str(f"Tập {ep_num:03d} (ID: {vid}){dur_tag}")
-
-        # Skip if file already exists and is non-empty
+        # Skip if file already exists and is non-empty (>50KB)
         if file_path.exists() and file_path.stat().st_size > 50000:
-            downloaded_files.append(file_path)
-            success_count += 1
-            continue
+            with pbar_lock:
+                downloaded_map[ep_num] = file_path
+                success_count += 1
+                pbar.update(1)
+                pbar.set_postfix_str(f"Tập {ep_num:03d} (sẵn có){dur_tag}")
+            return
 
         try:
             parser_module.handle_video_request(
@@ -416,16 +424,38 @@ def cli_download_series(
                 save_dir=str(series_folder),
             )
             if file_path.exists() and file_path.stat().st_size > 0:
-                downloaded_files.append(file_path)
-                success_count += 1
+                with pbar_lock:
+                    downloaded_map[ep_num] = file_path
+                    success_count += 1
+                    pbar.update(1)
+                    pbar.set_postfix_str(f"Tập {ep_num:03d} (xong){dur_tag}")
             else:
-                fail_count += 1
-                pbar.write(f"⚠️ Tập {ep_num} ({vid}) tải về nhưng file rỗng.")
+                with pbar_lock:
+                    fail_count += 1
+                    pbar.update(1)
+                    pbar.write(f"⚠️ Tập {ep_num} ({vid}) tải về nhưng file rỗng.")
         except Exception as exc:
-            fail_count += 1
-            pbar.write(f"❌ Lỗi tải tập {ep_num} ({vid}): {exc}")
+            with pbar_lock:
+                fail_count += 1
+                pbar.update(1)
+                pbar.write(f"❌ Lỗi tải tập {ep_num} ({vid}): {exc}")
+
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(_dl_worker, ep) for ep in episodes]
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception:
+                pass
 
     pbar.close()
+
+    # Step 3: Sort downloaded files in strict chronological order 1..N
+    downloaded_files: List[Path] = [
+        downloaded_map[int(ep.get("episode_num") or ep.get("index") or 0)]
+        for ep in episodes
+        if int(ep.get("episode_num") or ep.get("index") or 0) in downloaded_map
+    ]
 
     print(f"\n✨ TẢI HOÀN TẤT: \033[1;32m{success_count}/{len(episodes)} tập thành công\033[0m (Thất bại: {fail_count})")
     print(f"📂 Thư mục chứa tập: {series_folder}\n")
@@ -685,6 +715,8 @@ def run_interactive_menu():
                         chosen = results[int(sel) - 1]
                         s_id = chosen.get("drama_id")
                         ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
+                        threads_str = input("👉 Số luồng tải đồng thời (mặc định 5, 1-16) [5]: ").strip()
+                        threads = int(threads_str) if threads_str.isdigit() else 5
                         merge_ans = input("👉 Tự động ghép thành 1 video FULL sau khi tải xong? (y/N) [y]: ").strip().lower()
                         auto_merge = merge_ans in ["", "y", "yes", "1"]
                         cut_sec = 0.0
@@ -697,6 +729,7 @@ def run_interactive_menu():
                             auto_merge=auto_merge,
                             cut_end_seconds=cut_sec,
                             episode_selection=ep_sel,
+                            threads=threads,
                         )
 
         elif choice == "2":
@@ -708,6 +741,8 @@ def run_interactive_menu():
                     dl_ans = input("👉 Bạn có muốn tải phim này ngay bây giờ không? (y/N) [y]: ").strip().lower()
                     if dl_ans in ["", "y", "yes", "1"]:
                         ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
+                        threads_str = input("👉 Số luồng tải đồng thời (mặc định 5, 1-16) [5]: ").strip()
+                        threads = int(threads_str) if threads_str.isdigit() else 5
                         merge_ans = input("👉 Tự động ghép thành 1 video FULL sau khi tải xong? (y/N) [y]: ").strip().lower()
                         auto_merge = merge_ans in ["", "y", "yes", "1"]
                         cut_sec = 0.0
@@ -724,12 +759,15 @@ def run_interactive_menu():
                             cut_end_seconds=cut_sec,
                             mirror=mirror,
                             episode_selection=ep_sel,
+                            threads=threads,
                         )
 
         elif choice == "3":
             s_id = input("\n👉 Nhập Series ID hoặc Link phim (ví dụ 7369168922572164134): ").strip()
             if s_id:
                 ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
+                threads_str = input("👉 Số luồng tải đồng thời (mặc định 5, 1-16) [5]: ").strip()
+                threads = int(threads_str) if threads_str.isdigit() else 5
                 merge_ans = input("👉 Tự động ghép thành 1 video FULL sau khi tải xong? (y/N) [y]: ").strip().lower()
                 auto_merge = merge_ans in ["", "y", "yes", "1"]
                 cut_sec = 0.0
@@ -746,6 +784,7 @@ def run_interactive_menu():
                     cut_end_seconds=cut_sec,
                     mirror=mirror,
                     episode_selection=ep_sel,
+                    threads=threads,
                 )
 
         elif choice == "4":
@@ -813,6 +852,7 @@ def main():
     p_dl = subparsers.add_parser("download", help="Tải các tập của một bộ phim")
     p_dl.add_argument("series_id", type=str, help="Series ID hoặc Link phim (ví dụ: 7369168922572164134)")
     p_dl.add_argument("-e", "--episodes", "--range", type=str, default="", help="Khoảng tập cần tải (ví dụ: 1-20, 21-40, 1,3,5-10, hoặc để trống tải hết)")
+    p_dl.add_argument("-w", "--workers", "--threads", type=int, default=5, help="Số luồng tải đồng thời (mặc định: 5, tối đa: 16)")
     p_dl.add_argument("--start", type=int, default=None, help="Tập bắt đầu tải (ví dụ: 1)")
     p_dl.add_argument("--end", type=int, default=None, help="Tập kết thúc tải (ví dụ: 20)")
     p_dl.add_argument("--limit", type=int, default=None, help="Số lượng tập tối đa cần tải (ví dụ: 10)")
@@ -880,6 +920,7 @@ def main():
             start_ep=args.start,
             end_ep=args.end,
             limit=args.limit,
+            threads=args.workers,
         )
 
     elif args.command == "merge":

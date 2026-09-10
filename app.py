@@ -737,6 +737,7 @@ def api_merge_start_online():
         return jsonify({"error": "Danh sách mã video 'video_ids' không được để trống"}), 400
 
     options = {
+        "concurrency": int(payload.get("concurrency") or payload.get("threads") or payload.get("workers") or 5),
         "cut_end_seconds": float(payload.get("cut_end_seconds") or 0.0),
         "mirror": payload.get("mirror") in (True, "true", "True", "1", 1, "on"),
         "quality": str(payload.get("quality", "original")).strip(),
@@ -766,6 +767,43 @@ def api_merge_start_online():
         return jsonify({"ok": True, "task_id": task_id})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/batch_download", methods=["POST"])
+def api_batch_download():
+    """Download multiple episodes concurrently to a folder."""
+    payload = request.get_json(silent=True) or {}
+    episodes = payload.get("episodes") or []
+    series_id = str(payload.get("series_id", "")).strip()
+    series_name = str(payload.get("series_name") or f"Phim_{series_id}").strip()
+    save_dir = str(payload.get("save_dir", "")).strip()
+    concurrency = int(payload.get("concurrency") or payload.get("threads") or payload.get("workers") or 5)
+
+    if not episodes or not isinstance(episodes, list):
+        return jsonify({"error": "Danh sách tập 'episodes' không được để trống"}), 400
+
+    target_dir = Path(save_dir).resolve() if save_dir else parser_module.get_download_base_dir()
+    clean_name = re.sub(r'[\\/*?:"<>|]', '_', series_name).strip()
+    series_folder = target_dir / clean_name
+
+    try:
+        downloaded, success_cnt, fail_cnt = video_service.download_series_episodes_concurrent(
+            episodes=episodes,
+            series_id=series_id,
+            save_folder=series_folder,
+            clean_name=clean_name,
+            concurrency=concurrency,
+        )
+        return jsonify({
+            "ok": True,
+            "success_count": success_cnt,
+            "fail_count": fail_cnt,
+            "downloaded_files": [str(f) for f in downloaded],
+            "save_folder": str(series_folder),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
 
 
 
