@@ -1239,6 +1239,8 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         video_url = None
         srt_url = None
         srt_path = None
+        translated_srt_url = None
+        translated_srt_path = None
         storage_info = {}
 
         # 1. Tải video đã ghép lên storage.to
@@ -1294,7 +1296,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                     message=f"Đã trích xuất phụ đề ({len(segs)} câu): {srt_file.name}",
                 )
 
-                # 3. Tải file phụ đề (.srt) lên storage.to
+                # 3. Tải file phụ đề gốc (.srt) lên storage.to
                 if upload_to_storage and srt_file.exists():
                     try:
                         update_task(message="Đang tải file phụ đề (.srt) lên storage.to...")
@@ -1318,12 +1320,76 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                         print(f"[Storage.to Error] Lỗi tải phụ đề: {srt_up_err}", flush=True)
                         update_task(upload_srt_error=str(srt_up_err))
 
+                # 4. Dịch phụ đề sang tiếng Việt & Kiểm tra loại bỏ chữ Trung, lọc 1 từ, xóa dấu câu cuối
+                translate_subtitles = options.get("translate_subtitles", True) in (True, "true", "True", 1, "1")
+                if translate_subtitles and segs:
+                    try:
+                        update_task(message="Đang dịch phụ đề sang tiếng Việt & kiểm tra...")
+                        from helper_service import translate_and_clean_subtitles
+
+                        def _trans_cb(msg):
+                            update_task(message=msg)
+
+                        trans_prompt = options.get("translate_prompt") or options.get("prompt") or "ai_tong_hop_thong_minh"
+                        custom_endpoint = options.get("custom_endpoint") or options.get("endpoint")
+                        custom_api_key = options.get("custom_api_key") or options.get("api_key") or options.get("apikey")
+                        translate_model = options.get("translate_model") or options.get("model")
+
+                        dest_vi_srt = srt_file.with_name(f"{srt_file.stem}_vi.srt")
+                        translated_file, cleaned_segs = translate_and_clean_subtitles(
+                            segments=segs,
+                            dest_srt_path=dest_vi_srt,
+                            target_lang="vi",
+                            preset=trans_prompt,
+                            model=translate_model,
+                            api_key=custom_api_key,
+                            custom_endpoint=custom_endpoint,
+                            on_status=_trans_cb,
+                        )
+
+                        if translated_file and translated_file.exists():
+                            translated_srt_path = str(translated_file)
+                            update_task(
+                                translated_srt_path=translated_srt_path,
+                                translated_segments_count=len(cleaned_segs),
+                                message=f"Đã dịch phụ đề tiếng Việt ({len(cleaned_segs)} câu): {translated_file.name}",
+                            )
+
+                            # 5. Tải file phụ đề dịch tiếng Việt (.srt) lên storage.to
+                            if upload_to_storage:
+                                try:
+                                    update_task(message="Đang tải phụ đề tiếng Việt (.srt) lên storage.to...")
+
+                                    def _upload_vi_srt_cb(pct, msg):
+                                        update_task(message=f"Đang tải phụ đề tiếng Việt lên storage.to ({pct:.0f}%)...")
+
+                                    vi_srt_storage_res = upload_file_to_storage_to(
+                                        translated_file,
+                                        api_token=storage_api_token,
+                                        on_progress=_upload_vi_srt_cb,
+                                    )
+                                    translated_srt_url = vi_srt_storage_res.get("url")
+                                    storage_info["translated_subtitle"] = vi_srt_storage_res
+                                    update_task(
+                                        translated_srt_url=translated_srt_url,
+                                        message=f"Đã tải phụ đề tiếng Việt lên storage.to: {translated_srt_url}",
+                                    )
+                                except Exception as vi_up_err:
+                                    print(f"[Storage.to Error] Lỗi tải phụ đề tiếng Việt: {vi_up_err}", flush=True)
+                                    update_task(upload_translated_srt_error=str(vi_up_err))
+
+                    except Exception as trans_err:
+                        print(f"[Translation Error] Lỗi dịch phụ đề tiếng Việt: {trans_err}", flush=True)
+                        update_task(translation_error=str(trans_err))
+
             except Exception as asr_err:
                 print(f"[CapCut ASR Error] Lỗi nhận diện CapCut ASR: {asr_err}", flush=True)
                 update_task(asr_error=str(asr_err))
 
         final_msg = "Ghép video thành công!"
-        if video_url and srt_url:
+        if video_url and translated_srt_url:
+            final_msg = "Ghép video & dịch phụ đề tiếng Việt thành công! Đã tải lên storage.to"
+        elif video_url and srt_url:
             final_msg = "Ghép video & trích xuất phụ đề thành công! Đã tải lên storage.to"
         elif video_url:
             final_msg = "Ghép video thành công! Đã tải lên storage.to"
@@ -1335,6 +1401,8 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             "video_url": video_url,
             "srt_url": srt_url,
             "srt_path": srt_path,
+            "translated_srt_url": translated_srt_url,
+            "translated_srt_path": translated_srt_path,
             "storage_info": storage_info,
             "output_size": out_size,
             "output_size_str": format_size(out_size),

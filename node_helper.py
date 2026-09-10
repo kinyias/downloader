@@ -2115,7 +2115,7 @@ def segments_to_srt(segments: List[Dict[str, Any]]) -> str:
     srt_blocks = []
     block_idx = 1
     for seg in segments:
-        text = str(seg.get("text") or seg.get("translation") or "").strip()
+        text = str(seg.get("subtitleText") or seg.get("translation") or seg.get("text") or "").strip()
         if not text:
             continue
         st = float(seg.get("startTime", 0.0))
@@ -2723,14 +2723,30 @@ def action_transcribe_video(data: Dict[str, Any], settings: Dict[str, Any]) -> L
 def action_translate_segments(data: Dict[str, Any], settings: Dict[str, Any]) -> List[Dict[str, Any]]:
     segments = data.get("segments") or []
     target_lang = data.get("targetLang") or settings.get("translateTargetLang") or "vi"
-    api_key = settings.get("deepseekApiKey") or settings.get("openaiApiKey") or "dummy"
+    api_key = data.get("apiKey") or settings.get("customApiKey") or settings.get("deepseekApiKey") or settings.get("openaiApiKey") or ""
+    endpoint = data.get("endpoint") or settings.get("customApiEndpoint") or ""
+    model = data.get("model") or settings.get("customModel") or settings.get("translateModel") or ""
+    preset = data.get("preset") or settings.get("translatePreset") or "ai_tong_hop_thong_minh"
 
-    translator = DeepSeekTranslator(api_key)
-    return translator.translate_segments({
-        "segments": segments,
-        "targetLang": target_lang,
-        "glossary": data.get("glossary") or []
-    })
+    try:
+        from helper_service import translate_and_clean_subtitles
+        _, cleaned = translate_and_clean_subtitles(
+            segments=segments,
+            target_lang=target_lang,
+            preset=preset,
+            model=model,
+            api_key=api_key,
+            custom_endpoint=endpoint,
+            custom_prompt=data.get("customPrompt")
+        )
+        return cleaned
+    except Exception:
+        translator = DeepSeekTranslator(api_key)
+        return translator.translate_segments({
+            "segments": segments,
+            "targetLang": target_lang,
+            "glossary": data.get("glossary") or []
+        })
 
 def action_fetch_translate_models(data: Dict[str, Any], settings: Dict[str, Any]) -> List[Dict[str, str]]:
     endpoint = data.get("endpoint") or settings.get("customApiEndpoint") or ""

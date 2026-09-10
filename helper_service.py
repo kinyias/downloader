@@ -14,13 +14,83 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, Union, Tuple
 
 # Add workspace root to sys.path to import node_helper
-WORKSPACE_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+WORKSPACE_ROOT = str(Path(__file__).resolve().parent)
 if WORKSPACE_ROOT not in sys.path:
     sys.path.insert(0, WORKSPACE_ROOT)
 
 import node_helper
-from config import FFMPEG_PATH, TEMP_DIR, EXPORT_DIR
+from config import FFMPEG_PATH, TEMP_DIR, EXPORT_DIR, DEFAULT_SETTINGS
 from media_service import get_media_info, get_audio_duration
+
+# Chinese / CJK character detection regex (Unified Ideographs, Ext A, Compatibility)
+CHINESE_PATTERN = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]')
+
+# Ending punctuation regex (both Latin and CJK terminal punctuation marks)
+TRAILING_PUNCTUATION_PATTERN = re.compile(r'[\s.,?!;:…~—–\-"\'"“”„`·•。！？，；：～]+$')
+
+# Common single-word filler words / gasps in Vietnamese drama subtitles
+SINGLE_WORD_FILLERS = {
+    "á", "a", "à", "ả", "ã", "ạ",
+    "ơ", "ớ", "ờ", "ở", "ỡ", "ợ", "ơi",
+    "ừ", "ứ", "ừm", "um", "uh", "ah", "oh",
+    "ô", "ồ", "ố", "hả", "hở", "ê", "hế",
+    "hừ", "ư", "ứ", "úi", "ôi", "ủa", "ha",
+    "hic", "o", "ó", "ò", "chậc", "ơ kìa",
+    "ha ha", "a a", "á á", "úi chà", "ôi chao", "ôi trời"
+}
+
+def contains_chinese(text: str) -> bool:
+    """Return True if text contains any Chinese / Hanzi character."""
+    if not text:
+        return False
+    return bool(CHINESE_PATTERN.search(text))
+
+def clean_subtitle_text(text: str) -> str:
+    """
+    Filter out all trailing punctuation marks at the end of the subtitle line.
+    Preserves inner punctuation if any, but strips terminal . ! ? , ; : ... etc.
+    """
+    if not text:
+        return ""
+    cleaned = TRAILING_PUNCTUATION_PATTERN.sub("", text).strip()
+    return cleaned
+
+def is_single_word_filler(text: str) -> bool:
+    """
+    Detect if a subtitle line consists of only 1 word standing alone (like 'á', 'a')
+    or is a known meaningless exclamation/filler.
+    """
+    cleaned = clean_subtitle_text(text).strip()
+    if not cleaned:
+        return True
+
+    lower = cleaned.lower()
+    if lower in SINGLE_WORD_FILLERS:
+        return True
+
+    words = cleaned.split()
+    # Segments that have only 1 word standing alone (e.g. "á", "a", "ừ", etc.)
+    if len(words) <= 1:
+        return True
+
+    return False
+
+def load_prompt_by_preset(preset: str = "ai_tong_hop_thong_minh", target_lang: str = "vi") -> str:
+    """Load prompt preset from translation/prompts.json."""
+    prompts_file = Path(__file__).resolve().parent / "translation" / "prompts.json"
+    if prompts_file.exists():
+        try:
+            with open(prompts_file, "r", encoding="utf-8") as f:
+                all_prompts = json.load(f)
+                p_obj = all_prompts.get(preset) or all_prompts.get("ai_tong_hop_thong_minh") or all_prompts.get("default")
+                if isinstance(p_obj, dict):
+                    return p_obj.get(target_lang) or p_obj.get("vi") or ""
+                elif isinstance(p_obj, str):
+                    return p_obj
+        except Exception:
+            pass
+    return "Bạn là chuyên gia dịch thuật phụ đề phim chuyên nghiệp."
+
 
 def _log(msg: str):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -169,7 +239,7 @@ def segments_to_srt(segments: List[Dict[str, Any]]) -> str:
     srt_blocks = []
     block_idx = 1
     for seg in segments:
-        text = str(seg.get("text") or seg.get("translation") or "").strip()
+        text = str(seg.get("subtitleText") or seg.get("translation") or seg.get("text") or "").strip()
         if not text:
             continue
         st = float(seg.get("startTime", 0.0))
@@ -590,18 +660,7 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
     # Load prompt preset
     prompt_text = custom_prompt
     if not prompt_text:
-        prompts_file = Path(WORKSPACE_ROOT) / "translation" / "prompts.json"
-        if prompts_file.exists():
-            try:
-                with open(prompts_file, "r", encoding="utf-8") as f:
-                    all_prompts = json.load(f)
-                    p_obj = all_prompts.get(preset) or all_prompts.get("default")
-                    if isinstance(p_obj, dict):
-                        prompt_text = p_obj.get(target_lang) or p_obj.get("vi") or ""
-                    elif isinstance(p_obj, str):
-                        prompt_text = p_obj
-            except Exception:
-                pass
+        prompt_text = load_prompt_by_preset(preset, target_lang)
 
     if not prompt_text:
         prompt_text = "Bạn là chuyên gia dịch thuật phụ đề phim chuyên nghiệp."
@@ -624,13 +683,18 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
     # Resolve API key
     key = (api_key or "").strip()
     if not key:
-        prov = (provider or "").lower()
-        if prov == "deepseek":
-            key = os.getenv("DEEPSEEK_API_KEY", "")
-        elif prov == "openai":
-            key = os.getenv("OPENAI_API_KEY", "")
-        elif prov == "custom":
-            key = os.getenv("CUSTOM_API_KEY", "")
+        if custom_endpoint:
+            key = os.getenv("CUSTOM_API_KEY", "") or os.getenv("OPENAI_API_KEY", "") or os.getenv("DEEPSEEK_API_KEY", "")
+        else:
+            prov = (provider or "").lower()
+            if prov == "deepseek":
+                key = os.getenv("DEEPSEEK_API_KEY", "")
+            elif prov == "openai":
+                key = os.getenv("OPENAI_API_KEY", "")
+            elif prov == "custom":
+                key = os.getenv("CUSTOM_API_KEY", "")
+    if not key:
+        key = DEFAULT_SETTINGS.get("customApiKey", "")
 
     headers = {"Content-Type": "application/json"}
     if key and key != "dummy":
@@ -926,6 +990,167 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
         )
 
     return final_segments
+
+
+def translate_and_clean_subtitles(
+    segments: List[Dict[str, Any]],
+    dest_srt_path: Optional[Union[str, Path]] = None,
+    target_lang: str = "vi",
+    source_lang: str = "auto",
+    preset: str = "ai_tong_hop_thong_minh",
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
+    custom_prompt: Optional[str] = None,
+    api_key: Optional[str] = None,
+    custom_endpoint: Optional[str] = None,
+    on_status: Optional[Callable[[str], None]] = None,
+    max_retries: int = 2,
+) -> Tuple[Optional[Path], List[Dict[str, Any]]]:
+    """
+    Translate subtitle segments to Vietnamese with automated Chinese character detection,
+    targeted re-translation of any segment still containing Chinese characters,
+    removal of 1-word standalone filler segments ("á", "a", etc.),
+    removal of ending punctuation, and saving to an SRT file.
+    """
+    if not segments:
+        return None, []
+
+    def _status(msg: str):
+        _log(msg)
+        if on_status:
+            on_status(msg)
+
+    # Resolve default configuration values
+    resolved_endpoint = (custom_endpoint or "").strip() or os.getenv("CUSTOM_API_ENDPOINT") or DEFAULT_SETTINGS.get("customApiEndpoint", "")
+    resolved_key = (api_key or "").strip() or os.getenv("CUSTOM_API_KEY") or DEFAULT_SETTINGS.get("customApiKey", "")
+    resolved_model = (model or "").strip() or os.getenv("CUSTOM_MODEL") or DEFAULT_SETTINGS.get("customModel", "gemini-lite")
+    resolved_provider = provider or ("custom" if resolved_endpoint else "deepseek")
+
+    _status(
+        f"[Dịch phụ đề] Bắt đầu dịch {len(segments)} phân đoạn sang tiếng Việt "
+        f"(Model: '{resolved_model}', Preset: '{preset}')..."
+    )
+
+    # Step 1: Initial translation pass
+    translated_segs = run_translate_segments(
+        segments=segments,
+        target_lang=target_lang,
+        source_lang=source_lang,
+        preset=preset,
+        model=resolved_model,
+        provider=resolved_provider,
+        custom_prompt=custom_prompt,
+        api_key=resolved_key,
+        custom_endpoint=resolved_endpoint,
+    )
+
+    # Step 2: Verification pass & targeted re-translation for segments containing Chinese characters
+    for retry_round in range(1, max_retries + 1):
+        chinese_indices = [
+            idx for idx, s in enumerate(translated_segs)
+            if contains_chinese(s.get("translation") or s.get("subtitleText") or "")
+        ]
+        if not chinese_indices:
+            _status("[Dịch phụ đề] ✅ Toàn bộ phân đoạn đã sạch chữ tiếng Trung!")
+            break
+
+        _status(
+            f"[Dịch phụ đề] ⚠️ Phát hiện {len(chinese_indices)} phân đoạn còn chứa chữ tiếng Trung "
+            f"(Lần kiểm tra {retry_round}/{max_retries}). Đang tiến hành dịch lại..."
+        )
+
+        retry_segments = [
+            {
+                "id": str(idx + 1),
+                "text": translated_segs[idx].get("text") or translated_segs[idx].get("translation") or "",
+                "startTime": translated_segs[idx].get("startTime", 0.0),
+                "endTime": translated_segs[idx].get("endTime", 0.0),
+            }
+            for idx in chinese_indices
+        ]
+
+        base_prompt = custom_prompt or load_prompt_by_preset(preset, target_lang)
+        retranslate_prompt = (
+            f"{base_prompt}\n\n"
+            f"★ YÊU CẦU ĐẶC BIỆT BẮT BUỘC (DỊCH LẠI CHỮ TRUNG CÒN SÓT):\n"
+            f"Các câu sau trước đó vẫn còn sót chữ Hán/tiếng Trung. "
+            f"Bạn BẮT BUỘC phải dịch 100% sang tiếng Việt, TUYỆT ĐỐI KHÔNG ĐƯỢC để lại bất kỳ chữ Hán "
+            f"hay ký tự tiếng Trung nào trong bản dịch (chuyển ngữ nghĩa hoàn toàn hoặc phiên âm Hán-Việt chuẩn xác nếu là danh từ riêng)."
+        )
+
+        try:
+            retranslated_results = run_translate_segments(
+                segments=retry_segments,
+                target_lang=target_lang,
+                source_lang=source_lang,
+                preset=preset,
+                model=resolved_model,
+                provider=resolved_provider,
+                custom_prompt=retranslate_prompt,
+                api_key=resolved_key,
+                custom_endpoint=resolved_endpoint,
+            )
+            for r in retranslated_results:
+                orig_idx = int(r.get("id", 0)) - 1
+                if 0 <= orig_idx < len(translated_segs):
+                    t_val = r.get("translation") or r.get("subtitleText") or r.get("text", "")
+                    translated_segs[orig_idx]["translation"] = t_val
+                    translated_segs[orig_idx]["subtitleText"] = t_val
+        except Exception as retry_err:
+            _status(f"[Dịch phụ đề] Lỗi trong quá trình dịch lại phân đoạn tiếng Trung: {retry_err}")
+            break
+
+    # If any Chinese character still remains after retries, strip residual Chinese characters
+    for s in translated_segs:
+        cur_t = s.get("translation") or ""
+        if contains_chinese(cur_t):
+            cleaned_zh = CHINESE_PATTERN.sub("", cur_t).strip()
+            s["translation"] = cleaned_zh
+            s["subtitleText"] = cleaned_zh
+
+    # Step 3: Filtering and cleaning
+    # - Loại bỏ các segment chỉ có 1 từ đứng một mình như "á", "a"
+    # - Lọc hết toàn bộ dấu câu cuối câu
+    cleaned_segs = []
+    removed_fillers_count = 0
+    for s in translated_segs:
+        raw_text = str(s.get("subtitleText") or s.get("translation") or s.get("text") or "").strip()
+
+        # Check if segment has only 1 word standing alone (like "á", "a") or is filler
+        if is_single_word_filler(raw_text):
+            removed_fillers_count += 1
+            continue
+
+        # Strip all ending punctuation
+        cleaned_text = clean_subtitle_text(raw_text)
+        if not cleaned_text:
+            removed_fillers_count += 1
+            continue
+
+        s_copy = dict(s)
+        s_copy["translation"] = cleaned_text
+        s_copy["subtitleText"] = cleaned_text
+        s_copy["spokenText"] = clean_subtitle_text(s.get("spokenText") or cleaned_text)
+        cleaned_segs.append(s_copy)
+
+    _status(
+        f"[Dịch phụ đề] Đã làm sạch dấu câu cuối câu và loại bỏ {removed_fillers_count} phân đoạn 1 từ/từ đệm thừa. "
+        f"Còn lại {len(cleaned_segs)} phân đoạn phụ đề hoàn chỉnh."
+    )
+
+    # Re-index segments 1..N
+    for i, s in enumerate(cleaned_segs, 1):
+        s["id"] = str(i)
+
+    # Save to disk if dest_srt_path is provided
+    out_file = None
+    if dest_srt_path:
+        out_file = Path(dest_srt_path).resolve()
+        save_srt_file(cleaned_segs, out_file)
+        _status(f"[Dịch phụ đề] Đã lưu file phụ đề tiếng Việt: {out_file.name}")
+
+    return out_file, cleaned_segs
+
 
 
 def run_generate_single_tts(text: str, voice_id: str = "vi-VN-HoaiMyNeural",

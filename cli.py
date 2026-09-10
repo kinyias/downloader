@@ -295,6 +295,13 @@ def cli_download_series(
     end_ep: Optional[int] = None,
     limit: Optional[int] = None,
     threads: int = 5,
+    upload_to_storage: bool = True,
+    generate_subtitles: bool = True,
+    translate_subtitles: bool = True,
+    translate_prompt: str = "ai_tong_hop_thong_minh",
+    custom_endpoint: Optional[str] = None,
+    custom_api_key: Optional[str] = None,
+    translate_model: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Download selected episodes of a series with concurrent multi-threading
@@ -475,6 +482,13 @@ def cli_download_series(
             mirror=mirror,
             codec=codec,
             gpu_pref=gpu_pref,
+            upload_to_storage=upload_to_storage,
+            generate_subtitles=generate_subtitles,
+            translate_subtitles=translate_subtitles,
+            translate_prompt=translate_prompt,
+            custom_endpoint=custom_endpoint,
+            custom_api_key=custom_api_key,
+            translate_model=translate_model,
         )
 
         if merged_file and clean_parts:
@@ -509,10 +523,16 @@ def cli_merge_folder(
     audio_effect: str = "none",
     upload_to_storage: bool = True,
     generate_subtitles: bool = True,
+    translate_subtitles: bool = True,
+    translate_prompt: str = "ai_tong_hop_thong_minh",
+    custom_endpoint: Optional[str] = None,
+    custom_api_key: Optional[str] = None,
+    translate_model: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Merge all video files in a folder into one continuous video with live CLI progress bar,
-    then automatically upload to storage.to and extract SRT subtitles with CapCut ASR.
+    then automatically upload to storage.to, extract SRT subtitles with CapCut ASR,
+    and translate subtitles to Vietnamese with LLM.
     """
     folder = Path(folder_path).resolve()
     if not folder.exists() or not folder.is_dir():
@@ -552,6 +572,13 @@ def cli_merge_folder(
     print(f"🪞 Lật hình (Mirror)     : {'Bật' if mirror else 'Tắt'}")
     print(f"☁️ Upload storage.to    : {'Bật' if upload_to_storage else 'Tắt'}")
     print(f"🎙️ CapCut ASR (Phụ đề)  : {'Bật' if generate_subtitles else 'Tắt'}")
+    if generate_subtitles:
+        if translate_subtitles:
+            p_lbl = translate_prompt or "ai_tong_hop_thong_minh"
+            m_lbl = translate_model or "gemini-lite"
+            print(f"🇻🇳 Dịch sang Tiếng Việt : \033[1;32mBật\033[0m (Prompt: \033[1;33m{p_lbl}\033[0m | Model: \033[1;36m{m_lbl}\033[0m)")
+        else:
+            print(f"🇻🇳 Dịch sang Tiếng Việt : Tắt")
     print(f"💾 File đầu ra           : \033[1;36m{final_output}\033[0m")
     print("=" * 65 + "\n")
 
@@ -572,6 +599,11 @@ def cli_merge_folder(
         "output_name": output_name,
         "upload_to_storage": upload_to_storage,
         "generate_subtitles": generate_subtitles,
+        "translate_subtitles": translate_subtitles,
+        "translate_prompt": translate_prompt,
+        "custom_endpoint": custom_endpoint,
+        "custom_api_key": custom_api_key,
+        "translate_model": translate_model,
     }
 
     merge_pbar = tqdm(
@@ -604,6 +636,8 @@ def cli_merge_folder(
         video_url = options.get("video_url")
         srt_url = options.get("srt_url")
         srt_path = options.get("srt_path")
+        translated_srt_url = options.get("translated_srt_url")
+        translated_srt_path = options.get("translated_srt_path")
 
         print("\n" + "=" * 70)
         print("🎉 \033[1;32mGHÉP VIDEO & XUẤT BẢN THÀNH CÔNG RỰC RỠ!\033[0m")
@@ -613,9 +647,13 @@ def cli_merge_folder(
         if video_url:
             print(f"🌐 Link Video storage.to : \033[1;35m{video_url}\033[0m")
         if srt_path:
-            print(f"📝 Phụ đề SRT cục bộ     : \033[1;36m{srt_path}\033[0m")
+            print(f"📝 Phụ đề Gốc cục bộ     : \033[1;36m{srt_path}\033[0m")
         if srt_url:
-            print(f"🌐 Link Subtitle storage.to: \033[1;35m{srt_url}\033[0m")
+            print(f"🌐 Link Sub Gốc storage.to : \033[1;35m{srt_url}\033[0m")
+        if translated_srt_path:
+            print(f"🇻🇳 Phụ đề Dịch Tiếng Việt: \033[1;32m{translated_srt_path}\033[0m")
+        if translated_srt_url:
+            print(f"🌐 Link Sub Dịch storage.to: \033[1;35m{translated_srt_url}\033[0m")
         print("=" * 70 + "\n")
         return merged_path
 
@@ -865,6 +903,11 @@ def main():
     p_dl.add_argument("--gpu", type=str, default="nvenc", choices=["nvenc", "cpu", "qsv", "amf"], help="Bộ mã hóa phần cứng")
     p_dl.add_argument("--no-upload", action="store_true", help="Không tự động tải lên storage.to sau khi ghép")
     p_dl.add_argument("--no-asr", action="store_true", help="Không tự động trích xuất phụ đề CapCut ASR")
+    p_dl.add_argument("--no-translate", action="store_true", help="Không tự động dịch phụ đề sang tiếng Việt khi ghép")
+    p_dl.add_argument("--prompt", "--translate-prompt", dest="translate_prompt", type=str, default="ai_tong_hop_thong_minh", help="Chọn prompt dịch thuật (preset key trong prompts.json hoặc custom prompt)")
+    p_dl.add_argument("--custom-endpoint", "--endpoint", dest="custom_endpoint", type=str, default="", help="Custom LLM API endpoint (OpenAI-compatible)")
+    p_dl.add_argument("--apikey", "--api-key", dest="custom_api_key", type=str, default="", help="Custom API key")
+    p_dl.add_argument("--model", "--translate-model", dest="translate_model", type=str, default="", help="Model dịch thuật (vd: gemini-lite, deepseek-chat)")
 
     # Command: search
     p_sc = subparsers.add_parser("search", help="Tìm kiếm phim theo từ khóa")
@@ -882,6 +925,11 @@ def main():
     p_mg.add_argument("--gpu", type=str, default="nvenc", choices=["nvenc", "cpu", "qsv", "amf"], help="Bộ mã hóa phần cứng")
     p_mg.add_argument("--no-upload", action="store_true", help="Không tự động tải lên storage.to sau khi ghép")
     p_mg.add_argument("--no-asr", action="store_true", help="Không tự động trích xuất phụ đề CapCut ASR")
+    p_mg.add_argument("--no-translate", action="store_true", help="Không tự động dịch phụ đề sang tiếng Việt")
+    p_mg.add_argument("--prompt", "--translate-prompt", dest="translate_prompt", type=str, default="ai_tong_hop_thong_minh", help="Chọn prompt dịch thuật (preset key trong prompts.json hoặc custom prompt)")
+    p_mg.add_argument("--custom-endpoint", "--endpoint", dest="custom_endpoint", type=str, default="", help="Custom LLM API endpoint (OpenAI-compatible)")
+    p_mg.add_argument("--apikey", "--api-key", dest="custom_api_key", type=str, default="", help="Custom API key")
+    p_mg.add_argument("--model", "--translate-model", dest="translate_model", type=str, default="", help="Model dịch thuật (vd: gemini-lite, deepseek-chat)")
 
     # Command: check-gpu
     subparsers.add_parser("check-gpu", help="Kiểm tra chi tiết GPU & bộ mã hóa NVIDIA NVENC")
@@ -921,6 +969,13 @@ def main():
             end_ep=args.end,
             limit=args.limit,
             threads=args.workers,
+            upload_to_storage=not args.no_upload,
+            generate_subtitles=not args.no_asr,
+            translate_subtitles=not args.no_translate,
+            translate_prompt=args.translate_prompt,
+            custom_endpoint=args.custom_endpoint,
+            custom_api_key=args.custom_api_key,
+            translate_model=args.translate_model,
         )
 
     elif args.command == "merge":
@@ -935,6 +990,11 @@ def main():
             gpu_pref=args.gpu,
             upload_to_storage=not args.no_upload,
             generate_subtitles=not args.no_asr,
+            translate_subtitles=not args.no_translate,
+            translate_prompt=args.translate_prompt,
+            custom_endpoint=args.custom_endpoint,
+            custom_api_key=args.custom_api_key,
+            translate_model=args.translate_model,
         )
 
     elif args.command == "register":
