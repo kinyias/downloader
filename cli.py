@@ -189,6 +189,94 @@ def parse_episode_selection(selection_str: str, total_count: int) -> List[int]:
     return sorted(list(selected))
 
 
+# ───────────────────────── Show Detail Feature ─────────────────────────
+
+def cli_show_detail(
+    series_input: str,
+    episode_range: str = "",
+    as_json: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """
+    Display complete metadata and episode list for a series using the new 2.py App API detail.
+    """
+    ensure_device_configured()
+    series_id = extract_series_id(series_input)
+    if not series_id:
+        print("❌ Mã Series ID không hợp lệ!")
+        return None
+
+    print(f"\n📋 Đang lấy thông tin chi tiết phim ID: \033[1;36m{series_id}\033[0m ...")
+    try:
+        detail = app_module.get_hongguo_detail(series_id)
+    except Exception as exc:
+        print(f"❌ Không thể lấy thông tin chi tiết phim: {exc}")
+        return None
+
+    if as_json:
+        print(json.dumps(detail, ensure_ascii=False, indent=2))
+        return detail
+
+    series_name = detail.get("series_name") or detail.get("title") or f"Phim_{series_id}"
+    episodes = detail.get("episodes") or []
+    total_eps = len(episodes)
+    status_str = detail.get("status_vn") or detail.get("status") or "Trọn bộ"
+    play_str = detail.get("play_cnt_str") or str(detail.get("play_cnt") or 0)
+    followed = detail.get("followed_cnt") or 0
+    categories = " / ".join(detail.get("tags") or detail.get("category") or []) or "N/A"
+    intro = detail.get("series_intro") or detail.get("intro") or ""
+    celebrities = detail.get("celebrities") or []
+
+    print("\n" + "=" * 75)
+    print(f"  🎬 《\033[1;32m{series_name}\033[0m》 ({status_str} · {total_eps} tập)")
+    print("=" * 75)
+    print(f"  • Series ID    : \033[1;36m{series_id}\033[0m")
+    print(f"  • Thể loại     : {categories}")
+    print(f"  • Lượt xem     : {play_str}")
+    if followed:
+        follow_str = f"{followed / 10000:.1f}万" if followed >= 10000 else str(followed)
+        print(f"  • Theo dõi     : {follow_str}")
+    if detail.get("cover") or detail.get("series_cover"):
+        print(f"  • Ảnh bìa      : {detail.get('cover') or detail.get('series_cover')}")
+    if celebrities:
+        cast_strs = [f"{c['name']}({c['role']})" if c.get('role') else c['name'] for c in celebrities[:6]]
+        print(f"  • Diễn viên    : {' · '.join(cast_strs)}")
+    if intro:
+        intro_snippet = intro.replace("\n", " ").strip()
+        if len(intro_snippet) > 100:
+            intro_snippet = intro_snippet[:100] + "..."
+        print(f"  • Giới thiệu   : {intro_snippet}")
+    print("-" * 75)
+
+    # Filter episodes if range provided
+    shown_episodes = episodes
+    if episode_range:
+        selected_set = set(parse_episode_selection(episode_range, total_eps))
+        shown_episodes = [ep for ep in episodes if int(ep.get("episode_num", 0)) in selected_set]
+        print(f"  Danh sách tập ({len(shown_episodes)}/{total_eps} tập được chọn):")
+    else:
+        print(f"  Danh sách tập ({len(episodes)} tập):")
+
+    print("-" * 75)
+    print(f"  {'STT':>4}  {'Tập':<8}  {'Thời lượng':<10}  {'Lượt thích':<10}  {'Mã VID':<22}  {'Nội dung / Tiêu đề'}")
+    print(f"  {'-'*4:>4}  {'-'*8:<8}  {'-'*10:<10}  {'-'*10:<10}  {'-'*22:<22}  {'-'*20}")
+
+    for idx, ep in enumerate(shown_episodes, 1):
+        ep_num = ep.get("episode_num", idx)
+        dur = ep.get("duration_str") or "00:00"
+        dig = ep.get("digged_count", 0)
+        dig_str = f"👍 {dig/10000:.1f}万" if dig >= 10000 else (f"👍 {dig}" if dig else "-")
+        vid = ep.get("vid") or ""
+        title = (ep.get("title") or "").replace("\n", " ").strip()
+        if title.startswith(f"Tập {ep_num}") or title == f"第{ep_num}集":
+            title = ""
+        if len(title) > 30:
+            title = title[:30] + "..."
+        print(f"  [{idx:>3}]  Tập {ep_num:<4}  {dur:<10}  {dig_str:<10}  {vid:<22}  {title}")
+
+    print("=" * 75 + "\n")
+    return detail
+
+
 # ───────────────────────── Download Series Feature ─────────────────────────
 
 def cli_download_series(
@@ -226,7 +314,7 @@ def cli_download_series(
         print(f"❌ Không thể lấy thông tin phim: {exc}")
         return None
 
-    series_name = detail.get("series_name") or f"Phim_{series_id}"
+    series_name = detail.get("series_name") or detail.get("title") or f"Phim_{series_id}"
     all_episodes = detail.get("episodes") or []
     total_eps = len(all_episodes)
 
@@ -259,16 +347,28 @@ def cli_download_series(
     min_ep = min(int(ep["episode_num"]) for ep in episodes)
     max_ep = max(int(ep["episode_num"]) for ep in episodes)
 
-    print("\n" + "=" * 65)
-    print(f"🎬 TÊN PHIM        : \033[1;32m{series_name}\033[0m")
+    status_vn = detail.get("status_vn") or detail.get("status") or "Trọn bộ"
+    tags_str = " / ".join(detail.get("tags") or detail.get("category") or [])
+    play_cnt_str = detail.get("play_cnt_str") or ""
+    celebs = detail.get("celebrities") or []
+
+    print("\n" + "=" * 70)
+    print(f"🎬 TÊN PHIM        : \033[1;32m{series_name}\033[0m ({status_vn})")
+    if tags_str:
+        print(f"🏷️  THỂ LOẠI       : {tags_str}")
+    if play_cnt_str:
+        print(f"🔥 LƯỢT XEM        : {play_cnt_str}")
+    if celebs:
+        cast_strs = [f"{c['name']}({c['role']})" if c.get('role') else c['name'] for c in celebs[:5]]
+        print(f"🎭 DIỄN VIÊN       : {' · '.join(cast_strs)}")
     if len(episodes) == total_eps:
         print(f"🔢 TỔNG SỐ TẬP TẢI : \033[1;33m{total_eps} tập (Toàn bộ)\033[0m")
     else:
         print(f"🔢 SỐ TẬP ĐƯỢC CHỌN: \033[1;33m{len(episodes)} tập (Từ tập {min_ep} -> tập {max_ep} / Tổng: {total_eps} tập)\033[0m")
     print(f"📁 THƯ MỤC LƯU     : {series_folder}")
     if auto_merge:
-        print(f"⚙️ TỰ ĐỘNG GHÉP    : Bật (Cắt đuôi: {cut_end_seconds}s | Lật hình: {'Có' if mirror else 'Không'})")
-    print("=" * 65 + "\n")
+        print(f"⚙️  TỰ ĐỘNG GHÉP    : Bật (Cắt đuôi: {cut_end_seconds}s | Lật hình: {'Có' if mirror else 'Không'})")
+    print("=" * 70 + "\n")
 
     # Step 1: Pre-resolve video models in batches for maximum speed
     vids = [ep.get("vid") for ep in episodes if ep.get("vid")]
@@ -298,7 +398,8 @@ def cli_download_series(
         filename = f"{clean_name}_Tap_{ep_num:03d}.mp4"
         file_path = series_folder / filename
 
-        pbar.set_postfix_str(f"Tập {ep_num:03d} (ID: {vid})")
+        dur_tag = f" [{ep.get('duration_str')}]" if ep.get('duration_str') else ""
+        pbar.set_postfix_str(f"Tập {ep_num:03d} (ID: {vid}){dur_tag}")
 
         # Skip if file already exists and is non-empty
         if file_path.exists() and file_path.stat().st_size > 50000:
@@ -551,16 +652,17 @@ def run_interactive_menu():
         print(f" 💾 Thư mục lưu hiện tại: \033[1;36m{save_dir}\033[0m")
         print("=" * 70)
         print(" [1] 🔍 Tìm kiếm phim theo tên / thể loại")
-        print(" [2] ⚡ Tải phim theo Series ID (kèm tùy chọn tự động ghép)")
-        print(" [3] 🎬 Ghép các file video có sẵn trong một thư mục")
-        print(" [4] 🔍 Kiểm tra chi tiết GPU & Thử nghiệm NVENC")
-        print(" [5] 📱 Kiểm tra & Đăng ký lại thiết bị (Device ID)")
-        print(" [6] 📁 Đổi thư mục lưu trữ video")
+        print(" [2] ℹ️  Xem chi tiết thông tin phim & danh sách tập")
+        print(" [3] ⚡ Tải phim theo Series ID (kèm tùy chọn tự động ghép)")
+        print(" [4] 🎬 Ghép các file video có sẵn trong một thư mục")
+        print(" [5] 🔍 Kiểm tra chi tiết GPU & Thử nghiệm NVENC")
+        print(" [6] 📱 Kiểm tra & Đăng ký lại thiết bị (Device ID)")
+        print(" [7] 📁 Đổi thư mục lưu trữ video")
         print(" [0] 🚪 Thoát")
         print("=" * 70)
 
         try:
-            choice = input("👉 Nhập lựa chọn của bạn [0-6]: ").strip()
+            choice = input("👉 Nhập lựa chọn của bạn [0-7]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n👋 Tạm biệt!")
             break
@@ -570,8 +672,16 @@ def run_interactive_menu():
             if kw:
                 results = cli_search(kw)
                 if results:
-                    sel = input("👉 Nhập số thứ tự phim để tải (hoặc Enter để bỏ qua): ").strip()
-                    if sel.isdigit() and 1 <= int(sel) <= len(results):
+                    sel = input("👉 Nhập STT để tải, hoặc 'd <STT>' để xem chi tiết (Enter bỏ qua): ").strip()
+                    if sel.lower().startswith(("d ", "i ", "xem ")):
+                        parts = sel.split()
+                        if len(parts) > 1 and parts[1].isdigit():
+                            idx = int(parts[1])
+                            if 1 <= idx <= len(results):
+                                chosen = results[idx - 1]
+                                s_id = chosen.get("drama_id")
+                                cli_show_detail(s_id)
+                    elif sel.isdigit() and 1 <= int(sel) <= len(results):
                         chosen = results[int(sel) - 1]
                         s_id = chosen.get("drama_id")
                         ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
@@ -590,6 +700,33 @@ def run_interactive_menu():
                         )
 
         elif choice == "2":
+            s_id = input("\n👉 Nhập Series ID hoặc Link phim (ví dụ 7673742481694919704): ").strip()
+            if s_id:
+                ep_range = input("👉 Nhập khoảng tập muốn xem (Enter để xem toàn bộ, ví dụ 1-20): ").strip()
+                detail = cli_show_detail(s_id, episode_range=ep_range)
+                if detail:
+                    dl_ans = input("👉 Bạn có muốn tải phim này ngay bây giờ không? (y/N) [y]: ").strip().lower()
+                    if dl_ans in ["", "y", "yes", "1"]:
+                        ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
+                        merge_ans = input("👉 Tự động ghép thành 1 video FULL sau khi tải xong? (y/N) [y]: ").strip().lower()
+                        auto_merge = merge_ans in ["", "y", "yes", "1"]
+                        cut_sec = 0.0
+                        mirror = False
+                        if auto_merge:
+                            cut_str = input("👉 Cắt bỏ phần cuối mỗi tập (giây nhạc kết, ví dụ 0): ").strip()
+                            cut_sec = float(cut_str) if cut_str.replace('.', '', 1).isdigit() else 0.0
+                            m_ans = input("👉 Lật hình (Mirror video)? (y/N) [n]: ").strip().lower()
+                            mirror = m_ans in ["y", "yes", "1"]
+                        cli_download_series(
+                            s_id,
+                            output_dir=save_dir,
+                            auto_merge=auto_merge,
+                            cut_end_seconds=cut_sec,
+                            mirror=mirror,
+                            episode_selection=ep_sel,
+                        )
+
+        elif choice == "3":
             s_id = input("\n👉 Nhập Series ID hoặc Link phim (ví dụ 7369168922572164134): ").strip()
             if s_id:
                 ep_sel = input("👉 Chọn tập cần tải (Enter để tải hết, hoặc nhập ví dụ: 1-20, 21-40, 1,3,5): ").strip()
@@ -611,7 +748,7 @@ def run_interactive_menu():
                     episode_selection=ep_sel,
                 )
 
-        elif choice == "3":
+        elif choice == "4":
             f_path = input("\n👉 Nhập đường dẫn thư mục chứa các tập video (Enter để dùng thư mục con trong save_dir): ").strip()
             if not f_path:
                 print(f"Các thư mục có sẵn trong {save_dir}:")
@@ -629,10 +766,10 @@ def run_interactive_menu():
                 mirror = m_ans in ["y", "yes", "1"]
                 cli_merge_folder(Path(f_path), cut_end_seconds=cut_sec, mirror=mirror)
 
-        elif choice == "4":
+        elif choice == "5":
             cli_check_gpu()
 
-        elif choice == "5":
+        elif choice == "6":
             print("\n🔄 Đang thực hiện đăng ký thiết bị mới...")
             try:
                 from liushen.device_register import device_register
@@ -641,7 +778,7 @@ def run_interactive_menu():
             except Exception as exc:
                 print(f"❌ Lỗi đăng ký: {exc}")
 
-        elif choice == "6":
+        elif choice == "7":
             new_p = input(f"\n👉 Nhập đường dẫn thư mục mới (Hiện tại: {save_dir}): ").strip()
             if new_p:
                 p_obj = Path(new_p).resolve()
@@ -665,6 +802,12 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", help="Lệnh chức năng")
+
+    # Command: detail / info
+    p_dt = subparsers.add_parser("detail", aliases=["info"], help="Xem thông tin chi tiết phim và danh sách tập")
+    p_dt.add_argument("series_id", type=str, help="Series ID hoặc Link phim (ví dụ: 7673742481694919704)")
+    p_dt.add_argument("-e", "--episodes", "--range", type=str, default="", help="Khoảng tập cần xem (ví dụ: 1-20, 21-40)")
+    p_dt.add_argument("--json", action="store_true", help="Xuất dữ liệu chi tiết định dạng JSON")
 
     # Command: download
     p_dl = subparsers.add_parser("download", help="Tải các tập của một bộ phim")
@@ -713,7 +856,10 @@ def main():
         run_interactive_menu()
         return
 
-    if args.command == "search":
+    if args.command in ["detail", "info"]:
+        cli_show_detail(args.series_id, episode_range=args.episodes, as_json=args.json)
+
+    elif args.command == "search":
         cli_search(args.keyword, page=args.page)
 
     elif args.command == "check-gpu":

@@ -367,8 +367,34 @@ def api_search():
         return jsonify({"items": [], "page": page, "source": "红果短剧", "message": f"搜索失败：{exc}"}), 500
 
 
-def get_hongguo_detail(series_id: str) -> dict:
-    """Fetch and parse series detail from https://hongguoduanju.com/detail?series_id=..."""
+_episodes_module = None
+
+
+def get_episodes_module():
+    """Dynamically load 2.py module."""
+    global _episodes_module
+    if _episodes_module is not None:
+        return _episodes_module
+
+    script_path = APP_DIR / "2.py"
+    if not script_path.exists():
+        return None
+
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("episodes_service", script_path)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _episodes_module = mod
+            return _episodes_module
+    except Exception as exc:
+        print(f"[app] Failed to load 2.py: {exc}")
+    return None
+
+
+def get_hongguo_detail(series_id: str, use_cache: bool = True) -> dict:
+    """Fetch and parse series detail using 2.py (Hongguo App API with Liushen signing)."""
     series_id = str(series_id or "").strip()
     # If user provided a URL, extract series_id
     if "series_id=" in series_id:
@@ -379,6 +405,55 @@ def get_hongguo_detail(series_id: str) -> dict:
     if not series_id:
         raise ValueError("series_id is required")
 
+    # 1. Primary method: Use 2.py
+    mod = get_episodes_module()
+    if mod and hasattr(mod, "get_episodes"):
+        try:
+            meta, eps = mod.get_episodes(series_id, use_cache=use_cache)
+            vid_list = [str(e.get("vid") or "") for e in eps if e.get("vid")]
+            episodes = []
+            for ep in eps:
+                idx = ep.get("index") or len(episodes) + 1
+                episodes.append({
+                    "episode_num": idx,
+                    "index": idx,
+                    "title": ep.get("title") or f"Tập {idx}",
+                    "vid": str(ep.get("vid") or ""),
+                    "series_id": str(meta.get("series_id") or series_id),
+                    "series_name": meta.get("title") or "",
+                    "duration": ep.get("duration") or 0,
+                    "duration_str": ep.get("duration_str") or "00:00",
+                    "cover": ep.get("cover") or "",
+                    "digged_count": ep.get("digged_count") or 0,
+                    "comment_count": ep.get("comment_count") or 0,
+                })
+
+            return {
+                "series_id": str(meta.get("series_id") or series_id),
+                "series_name": meta.get("title") or "",
+                "title": meta.get("title") or "",
+                "series_cover": meta.get("cover") or "",
+                "cover": meta.get("cover") or "",
+                "episode_cnt": meta.get("episode_cnt") or len(vid_list),
+                "series_intro": meta.get("intro") or "",
+                "intro": meta.get("intro") or "",
+                "tags": meta.get("category") or [],
+                "category": meta.get("category") or [],
+                "status": meta.get("status") or "完结",
+                "status_vn": meta.get("status_vn") or "Trọn bộ",
+                "play_cnt": meta.get("play_cnt") or 0,
+                "play_cnt_str": meta.get("play_cnt_str") or "0",
+                "followed_cnt": meta.get("followed_cnt") or 0,
+                "celebrities": meta.get("celebrities") or [],
+                "vid_list": vid_list,
+                "episodes": episodes,
+                "source": "app_api_2.py",
+                "source_url": f"https://hongguoduanju.com/detail?series_id={meta.get('series_id') or series_id}",
+            }
+        except Exception as exc:
+            print(f"[app] Fetch detail via 2.py failed for series_id={series_id}: {exc}. Fallback to bs4 scraper.")
+
+    # 2. Fallback method: web scraper (in case 2.py cannot run or device keys missing)
     url = f"https://hongguoduanju.com/detail?series_id={series_id}"
     html_text = fetch_text(url)
     soup = BeautifulSoup(html_text, "html.parser")
@@ -405,21 +480,38 @@ def get_hongguo_detail(series_id: str) -> dict:
     for idx, vid in enumerate(vid_list, 1):
         episodes.append({
             "episode_num": idx,
+            "index": idx,
             "title": f"Tập {idx}",
             "vid": str(vid),
             "series_id": str(series.get("series_id") or series_id),
-            "series_name": series.get("series_name") or ""
+            "series_name": series.get("series_name") or "",
+            "duration": 0,
+            "duration_str": "00:00",
+            "cover": "",
+            "digged_count": 0,
+            "comment_count": 0,
         })
 
     return {
         "series_id": str(series.get("series_id") or series_id),
         "series_name": series.get("series_name") or "",
+        "title": series.get("series_name") or "",
         "series_cover": series.get("series_cover") or "",
+        "cover": series.get("series_cover") or "",
         "episode_cnt": series.get("episode_cnt") or len(vid_list),
         "series_intro": series.get("series_intro") or "",
+        "intro": series.get("series_intro") or "",
         "tags": series.get("tags") or [],
+        "category": series.get("tags") or [],
+        "status": "完结",
+        "status_vn": "Trọn bộ",
+        "play_cnt": 0,
+        "play_cnt_str": "",
+        "followed_cnt": 0,
+        "celebrities": [],
         "vid_list": vid_list,
         "episodes": episodes,
+        "source": "web_scraper",
         "source_url": url,
     }
 
@@ -429,14 +521,16 @@ def api_detail():
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
         series_id = str(payload.get("series_id") or payload.get("id") or "").strip()
+        no_cache = bool(payload.get("no_cache") or payload.get("refresh"))
     else:
         series_id = str(request.args.get("series_id") or request.args.get("id") or "").strip()
+        no_cache = request.args.get("no_cache") == "1" or request.args.get("refresh") == "1"
 
     if not series_id:
         return jsonify({"error": "Missing series_id parameter"}), 400
 
     try:
-        data = get_hongguo_detail(series_id)
+        data = get_hongguo_detail(series_id, use_cache=not no_cache)
         return jsonify(data)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

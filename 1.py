@@ -49,7 +49,7 @@ def load_dotenv_file(path: Path) -> None:
 
 load_dotenv_file(Path(__file__).resolve().parent / ".env")
 
-from flurl.core import core_sixgod
+from liushen.flurl.core import core_sixgod
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
