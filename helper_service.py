@@ -729,6 +729,18 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
             }
         )
 
+    # Pre-calculate budgets for spokenText condensation if Vietnamese
+    spoken_map: Dict[str, str] = {}
+    budget_lookup: Dict[str, int] = {}
+    budgeted_segments_map: Dict[str, Dict[str, Any]] = {}
+    is_vietnamese = (target_lang or "").lower().startswith("vi")
+    if is_vietnamese:
+        budgeted_segments = calculate_segment_budgets(segments)
+        for s in budgeted_segments:
+            s_id = str(s.get("id"))
+            budget_lookup[s_id] = s.get("budgetSyl", 0)
+            budgeted_segments_map[s_id] = s
+
     cur_start_seg = 1
     for chunk_idx, chunk in enumerate(chunks):
         batch_num = chunk_idx + 1
@@ -859,12 +871,70 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
                     if idx < len(lines):
                         results_map[s_id] = lines[idx]
 
+            # Kiểm tra và thực hiện rút gọn lời đọc ngay sau mỗi batch hoàn thành
+            if is_vietnamese:
+                pass1_candidates = []
+                for s in chunk:
+                    s_id = str(s.get("id", ""))
+                    budgeted_s = budgeted_segments_map.get(s_id, s)
+                    full_trans = results_map.get(s_id) or s.get("translation") or s.get("text", "")
+                    syl = count_vi_syllables(full_trans)
+                    b_syl = budgeted_s.get("budgetSyl", 0)
+                    if b_syl > 0 and syl > b_syl * 1.06:
+                        pass1_candidates.append({"seg": budgeted_s, "full": full_trans, "idx": s_id})
+
+                if pass1_candidates:
+                    _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
+                    if job_id:
+                        update_job(
+                            job_id,
+                            int(pct_so_far * 0.95),
+                            f"Batch {batch_num}/{total_batches}: Đang rút gọn lời đọc cho {len(pass1_candidates)} câu...",
+                        )
+
+                    p1_results = run_condense_chunk(pass1_candidates, chat_url, headers, model, deep=False)
+                    for c in pass1_candidates:
+                        c_id = str(c["seg"]["id"])
+                        if c_id in p1_results and p1_results[c_id]:
+                            spoken_map[c_id] = p1_results[c_id]
+
+                    # Pass 2: Rút gọn sâu (tối đa 50%) cho những câu trong batch vẫn còn vượt thời lượng hình
+                    deep_candidates = []
+                    for c in pass1_candidates:
+                        c_id = str(c["seg"]["id"])
+                        cur_read = spoken_map.get(c_id) or c["full"]
+                        cur_syl = count_vi_syllables(cur_read)
+                        b_syl = c["seg"].get("budgetSyl", 0)
+                        if b_syl > 0 and cur_syl > b_syl * 1.06:
+                            deep_candidates.append({
+                                "seg": c["seg"],
+                                "full": c["full"],
+                                "current_read": cur_read,
+                                "idx": c_id
+                            })
+
+                    if deep_candidates:
+                        _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vượt thời lượng hình...")
+                        deep_results = run_condense_chunk(deep_candidates, chat_url, headers, model, deep=True)
+                        for c in deep_candidates:
+                            c_id = str(c["seg"]["id"])
+                            if c_id in deep_results and deep_results[c_id]:
+                                condensed_text = deep_results[c_id]
+                                orig_syl = count_vi_syllables(c["full"])
+                                new_syl = count_vi_syllables(condensed_text)
+                                if new_syl < orig_syl:
+                                    spoken_map[c_id] = condensed_text
+                                    _log(
+                                        f"    • Segment #{c_id}: BẢN ĐỦ ({orig_syl} âm tiết) ➔ "
+                                        f"RÚT GỌN SÂU ({new_syl} âm tiết / Ngân sách {c['seg'].get('budgetSyl')} âm tiết): '{condensed_text}'"
+                                    )
+
             batch_dur = time.perf_counter() - batch_t0
             completed_so_far = batch_end_seg
             pct_so_far = (completed_so_far / total_segs) * 100
             _log(
                 f"<-- [Translate Batch {batch_num}/{total_batches} HOÀN THÀNH] Xong {len(chunk)} câu trong {batch_dur:.2f}s "
-                f"| Đã dịch: {completed_so_far}/{total_segs} segments ({pct_so_far:.1f}%)"
+                f"| Đã dịch & rút gọn: {completed_so_far}/{total_segs} segments ({pct_so_far:.1f}%)"
             )
             if job_id:
                 update_job(
@@ -886,67 +956,6 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
             if job_id:
                 update_job(job_id, 0, f"Lỗi dịch phân đoạn: {str(e)}", status="failed", error=str(e))
             raise RuntimeError(f"Lỗi khi dịch qua LLM ({chat_url}): {str(e)}")
-
-    # Check if we should perform Vietnamese spokenText condensation passes matching node_helper.js
-    spoken_map: Dict[str, str] = {}
-    budget_lookup: Dict[str, int] = {}
-    if (target_lang or "").lower().startswith("vi"):
-        budgeted_segments = calculate_segment_budgets(segments)
-        budget_lookup = {str(s.get("id")): s.get("budgetSyl", 0) for s in budgeted_segments}
-
-        pass1_candidates = []
-        for s in budgeted_segments:
-            s_id = str(s.get("id", ""))
-            full_trans = results_map.get(s_id) or s.get("translation") or s.get("text", "")
-            syl = count_vi_syllables(full_trans)
-            b_syl = s.get("budgetSyl", 0)
-            if b_syl > 0 and syl > b_syl * 1.06:
-                pass1_candidates.append({"seg": s, "full": full_trans, "idx": s_id})
-
-        if pass1_candidates:
-            _log(f"--> [Translate] Rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
-            if job_id:
-                update_job(job_id, 92, f"Đang rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
-
-            p1_results = run_condense_chunk(pass1_candidates, chat_url, headers, model, deep=False)
-            for c in pass1_candidates:
-                s_id = str(c["seg"]["id"])
-                if s_id in p1_results and p1_results[s_id]:
-                    spoken_map[s_id] = p1_results[s_id]
-
-            # Pass 2: Rút gọn sâu (tối đa 50%) cho những câu vẫn còn vượt thời lượng hình
-            deep_candidates = []
-            for c in pass1_candidates:
-                s_id = str(c["seg"]["id"])
-                cur_read = spoken_map.get(s_id) or c["full"]
-                cur_syl = count_vi_syllables(cur_read)
-                b_syl = c["seg"].get("budgetSyl", 0)
-                if b_syl > 0 and cur_syl > b_syl * 1.06:
-                    deep_candidates.append({
-                        "seg": c["seg"],
-                        "full": c["full"],
-                        "current_read": cur_read,
-                        "idx": s_id
-                    })
-
-            if deep_candidates:
-                _log(f"--> [Translate] Rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vượt thời lượng hình...")
-                if job_id:
-                    update_job(job_id, 96, f"Đang rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vượt thời lượng hình...")
-
-                deep_results = run_condense_chunk(deep_candidates, chat_url, headers, model, deep=True)
-                for c in deep_candidates:
-                    s_id = str(c["seg"]["id"])
-                    if s_id in deep_results and deep_results[s_id]:
-                        condensed_text = deep_results[s_id]
-                        orig_syl = count_vi_syllables(c["full"])
-                        new_syl = count_vi_syllables(condensed_text)
-                        if new_syl < orig_syl:
-                            spoken_map[s_id] = condensed_text
-                            _log(
-                                f"    • Segment #{s_id}: BẢN ĐỦ ({orig_syl} âm tiết) ➔ "
-                                f"RÚT GỌN SÂU ({new_syl} âm tiết / Ngân sách {c['seg'].get('budgetSyl')} âm tiết): '{condensed_text}'"
-                            )
 
     # Assemble final segments list
     final_segments = []
