@@ -1479,7 +1479,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                                 print(f"[Storage.to Error] Lỗi tải audio dubbing: {dub_audio_up_err}", flush=True)
                                                 update_task(upload_dubbed_audio_error=str(dub_audio_up_err))
 
-                                        # 7. Render ghép audio dubbing vào video (giảm âm gốc còn 0.2, tăng âm dubbing lên 3.0, mute 0.1s mỗi 0.9s, pitch down 5%)
+                                        # 7. Render ghép audio dubbing vào video (âm gốc: giảm còn 0.1, mute 0.1s mỗi 0.9s, pitch down 5%; âm dubbing: khuếch đại 3.0, giữ nguyên cao độ tự nhiên - KHÔNG pitch down)
                                         try:
                                             update_task(message="Đang render ghép video với audio dubbing & hiệu ứng âm thanh nền...")
                                             dest_dubbed_video = output_path.with_name(f"{output_path.stem}_dubbed.mp4")
@@ -1491,7 +1491,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                                 video_path=output_path,
                                                 dubbed_audio_path=dest_dubbed_audio,
                                                 output_video_path=dest_dubbed_video,
-                                                bg_volume=float(options.get("bg_volume") or options.get("dub_bg_volume") or 0.2),
+                                                bg_volume=float(options.get("bg_volume") or options.get("dub_bg_volume") or 0.1),
                                                 dub_volume=float(options.get("dub_volume") or options.get("dubbing_volume") or 3.0),
                                                 pitch_down_pct=5.0,
                                                 on_progress=_render_vid_cb,

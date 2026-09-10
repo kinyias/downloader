@@ -8,7 +8,7 @@ Provides:
     * Audio is allowed to be longer than subtitle duration by utilizing available silence gaps
       between utterances, while strictly never colliding with previous or next audio clips.
     * Speed up audio up to 1.2x (via ffmpeg atempo) if audio exceeds subtitle duration.
-    * Center padding (fill silence on both sides equally) if audio is shorter than subtitle.
+    * Left-aligned speech with zero leading silence (starts immediately when subtitle appears, no lag).
 - Strict deficit verification (> 0.3s):
     * Only if after utilizing all available space without touching adjacent audio and speeding up 1.2x,
       the space is STILL lacking by > 0.3s for the audio:
@@ -381,11 +381,11 @@ def align_and_pad_audio_segment(
     pad_left: float = 0.0,
 ) -> Tuple[Path, float]:
     """
-    Căn chỉnh audio segment theo target_duration và cấu hình speed/pad từ timing_plan của node_helper:
-    1. Tăng tốc bằng ffmpeg 'atempo' nếu speed_factor > 1.01.
-    2. Chèn khoảng lặng bên trái (pad_left) nếu có (center-padding).
-    3. Nếu thời lượng audio ngắn hơn target_duration: bổ sung khoảng lặng bên phải (apad) và trim về target_duration.
-    4. Nếu thời lượng audio dài hơn target_duration (dư <= 0.3s): fade-out 0.05s ở đuôi và trim về target_duration.
+    Căn chỉnh audio segment theo target_duration và cấu hình speed từ timing_plan của node_helper:
+    1. Cắt bỏ khoảng lặng ở đầu audio (silenceremove) để âm thanh phát ra ngay lập tức, không bị trễ tiếng so với phụ đề.
+    2. Tăng tốc bằng ffmpeg 'atempo' nếu speed_factor > 1.005.
+    3. Căn trái lời nói (mặc định pad_left = 0) để lời đọc khớp ngay khi subtitle xuất hiện.
+    4. Bổ sung khoảng lặng bên phải (apad) và trim về target_duration (fade-out 0.05s ở đuôi nếu cần).
     """
     in_p = Path(input_audio_path).resolve()
     out_p = Path(output_audio_path).resolve()
@@ -402,57 +402,30 @@ def align_and_pad_audio_segment(
         return out_p, target_dur
 
     ffmpeg = get_ffmpeg_bin()
-    current_audio = in_p
-    current_dur = orig_dur
 
-    # Bước 1: Áp dụng speedup nếu speed_factor > 1.01
-    if speed_factor > 1.01:
-        sped_p = out_p.with_name(f"{out_p.stem}_sped_{int(time.time()*1000)%10000}.wav")
-        cmd_speed = [
-            ffmpeg, "-y", "-i", str(current_audio),
-            "-af", f"atempo={speed_factor:.4f}",
-            str(sped_p)
-        ]
-        res = subprocess.run(cmd_speed, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if res.returncode == 0 and sped_p.exists():
-            current_audio = sped_p
-            current_dur = get_audio_duration_ffprobe(sped_p)
+    # Xây dựng filtergraph hoàn chỉnh xử lý trong 1 lượt FFmpeg
+    filters = ["silenceremove=start_periods=1:start_duration=0.01:start_threshold=-45dB"]
+    if speed_factor > 1.005:
+        filters.append(f"atempo={speed_factor:.4f}")
 
-    # Bước 2: Padding & Trim để khớp chính xác target_dur
     pad_left_ms = max(0, int(round(pad_left * 1000)))
-    if pad_left_ms > 5 or current_dur < target_dur:
-        pad_right = max(0.0, target_dur - (current_dur + pad_left))
-        if pad_left_ms > 5:
-            af_filter = f"adelay={pad_left_ms}|{pad_left_ms},apad=pad_dur={pad_right + 0.5:.4f},atrim=0:{target_dur:.4f}"
-        else:
-            af_filter = f"apad=pad_dur={pad_right + 0.5:.4f},atrim=0:{target_dur:.4f}"
-        cmd_pad = [
-            ffmpeg, "-y", "-i", str(current_audio),
-            "-af", af_filter,
-            str(out_p)
-        ]
-        res = subprocess.run(cmd_pad, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if res.returncode != 0 or not out_p.exists():
-            shutil.copyfile(current_audio, out_p)
-    else:
-        # Audio dài hơn hoặc bằng target_dur (dư <= 0.3s) -> fade-out 0.05s ở đuôi và trim
-        fade_out_start = max(0.0, target_dur - 0.05)
-        af_filter = f"atrim=0:{target_dur:.4f},afade=t=out:st={fade_out_start:.4f}:d=0.05"
-        cmd_trim = [
-            ffmpeg, "-y", "-i", str(current_audio),
-            "-af", af_filter,
-            str(out_p)
-        ]
-        res = subprocess.run(cmd_trim, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if res.returncode != 0 or not out_p.exists():
-            shutil.copyfile(current_audio, out_p)
+    if pad_left_ms > 5:
+        filters.append(f"adelay={pad_left_ms}|{pad_left_ms}")
 
-    # Dọn dẹp file tạm sped_p nếu có
-    if current_audio != in_p and current_audio.exists():
-        try:
-            current_audio.unlink(missing_ok=True)
-        except Exception:
-            pass
+    filters.append(f"apad=pad_dur={target_dur + 0.5:.4f}")
+    fade_out_start = max(0.0, target_dur - 0.05)
+    filters.append(f"afade=t=out:st={fade_out_start:.4f}:d=0.05")
+    filters.append(f"atrim=0:{target_dur:.4f}")
+
+    af_filter = ",".join(filters)
+    cmd = [
+        ffmpeg, "-y", "-i", str(in_p),
+        "-af", af_filter,
+        str(out_p)
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if res.returncode != 0 or not out_p.exists():
+        shutil.copyfile(in_p, out_p)
 
     final_dur = get_audio_duration_ffprobe(out_p)
     return out_p, final_dur
@@ -658,19 +631,30 @@ def process_segment_dubbing_with_retry(
     u_final = _extract_unit(fit_res)
     p_start = float(u_final.get("plannedStart", start_t))
     p_end = float(u_final.get("plannedEnd", end_t))
-    p_window = max(0.05, p_end - p_start)
     tempo = float(u_final.get("audioTempo", 1.0))
     eff_speech = audio_dur / tempo if tempo > 1e-6 else audio_dur
-    pad_left = max(0.0, (p_window - eff_speech) / 2.0) if eff_speech < p_window else 0.0
 
+    # Căn chỉnh thời điểm bắt đầu: Giọng đọc bắt đầu ngay khi subtitle xuất hiện (start_t)
+    if start_t + eff_speech <= p_end:
+        actual_start = start_t
+        actual_end = start_t + eff_speech
+    else:
+        actual_start = max(p_start, p_end - eff_speech)
+        actual_end = min(p_end, actual_start + eff_speech)
+
+    if prev_audio_end > 0.0 and actual_start < prev_audio_end + min_gap:
+        actual_start = prev_audio_end + min_gap
+        actual_end = actual_start + eff_speech
+
+    actual_dur = max(0.05, actual_end - actual_start)
     align_and_pad_audio_segment(
         input_audio_path=seg_raw_path,
-        target_duration=p_window,
+        target_duration=actual_dur,
         output_audio_path=seg_aligned_path,
         speed_factor=tempo,
-        pad_left=pad_left,
+        pad_left=0.0,
     )
-    return seg_aligned_path, p_start, p_end
+    return seg_aligned_path, actual_start, actual_end
 
 
 def build_full_dubbed_audio(
@@ -842,41 +826,50 @@ def build_full_dubbed_audio(
             if on_progress:
                 on_progress(pct, status_msg)
 
-            planned_start = float(u_plan.get("plannedStart", seg.get("startTime", 0.0)))
-            planned_end = float(u_plan.get("plannedEnd", seg.get("endTime", 0.0)))
-            planned_window = max(0.05, planned_end - planned_start)
+            orig_start = float(seg.get("startTime", 0.0))
+            orig_end = float(seg.get("endTime", 0.0))
+            planned_start = float(u_plan.get("plannedStart", orig_start))
+            planned_end = float(u_plan.get("plannedEnd", orig_end))
             tempo = float(u_plan.get("audioTempo", 1.0))
             raw_audio = raw_audio_map.get(s_id)
 
-            # Căn giữa lời nói nếu audio sau khi tăng tốc ngắn hơn planned_window
             raw_dur = float(u_plan.get("audioDuration") or get_audio_duration_ffprobe(raw_audio))
             eff_speech = raw_dur / tempo if tempo > 1e-6 else raw_dur
-            pad_left = max(0.0, (planned_window - eff_speech) / 2.0) if eff_speech < planned_window else 0.0
 
+            # 1. Căn thời điểm phát: Khớp ngay tại orig_start khi phụ đề xuất hiện trên video
+            # Chỉ bắt đầu sớm hơn (mượn về trước) nếu câu đọc dài vượt quá khoảng trống tới planned_end
+            if orig_start + eff_speech <= planned_end:
+                speech_start = orig_start
+                speech_end = orig_start + eff_speech
+            else:
+                speech_start = max(planned_start, planned_end - eff_speech)
+                speech_end = min(planned_end, speech_start + eff_speech)
+
+            # 2. Đảm bảo không bao giờ đè lên audio phân đoạn trước
+            if speech_start < current_time:
+                speech_start = current_time
+                speech_end = speech_start + eff_speech
+
+            target_seg_dur = max(0.05, speech_end - speech_start)
             aligned_seg_audio = temp_dir / f"seg_{s_id}_aligned.wav"
             align_and_pad_audio_segment(
                 input_audio_path=raw_audio,
-                target_duration=planned_window,
+                target_duration=target_seg_dur,
                 output_audio_path=aligned_seg_audio,
                 speed_factor=tempo,
-                pad_left=pad_left,
+                pad_left=0.0,
             )
 
-            # Đảm bảo không bao giờ đè lên audio phía trước
-            if planned_start < current_time:
-                planned_start = current_time
-                planned_end = planned_start + planned_window
-
-            # Chèn khoảng lặng trước planned_start nếu có
-            if planned_start > current_time + 0.005:
-                silence_dur = planned_start - current_time
+            # 3. Chèn khoảng lặng trước speech_start nếu có khoảng trống
+            if speech_start > current_time + 0.005:
+                silence_dur = speech_start - current_time
                 silence_file = temp_dir / f"gap_{s_id}_silence.wav"
                 create_silent_audio(silence_file, silence_dur)
                 concat_list.append(silence_file)
-                current_time = planned_start
+                current_time = speech_start
 
             concat_list.append(aligned_seg_audio)
-            current_time = planned_end
+            current_time = speech_end
 
         # Pad remaining silence at the end of video if needed
         if total_duration > current_time + 0.05:
@@ -932,13 +925,14 @@ def render_dubbed_video(
 ) -> Path:
     """
     Render final dubbed video by merging video with dubbed audio track:
-    - Original background audio:
+    - Original background audio ([0:a]):
         * Volume reduced to bg_volume (default 0.2)
         * Periodic mute: every 0.9s mute for 0.1s (cycle: 1.0s)
-        * Pitch down by pitch_down_pct (default 5% -> pitch 0.95)
-    - Dubbed audio:
+        * Pitch down by pitch_down_pct (default 5% -> pitch 0.95) for anti-copyright
+    - Dubbed audio ([1:a]):
         * Volume amplified to dub_volume (default 3.0)
-    - Audio track mixed with amix (normalize=0).
+        * Pure natural pitch preserved (NO pitch shifting applied to dubbing audio)
+    - Audio tracks mixed with amix (normalize=0).
     - Video stream copied without re-encoding (-c:v copy) for maximum speed.
     """
     in_v = Path(video_path).resolve()
@@ -952,7 +946,10 @@ def render_dubbed_video(
     if not in_a.exists():
         raise FileNotFoundError(f"Dubbed audio file not found: {in_a}")
 
-    _log(f"Đang render video lồng tiếng ({out_v.name}) [Âm dubbing: {dub_volume:.1f}x, Âm gốc: {bg_volume:.2f}x]...")
+    _log(
+        f"Đang render video lồng tiếng ({out_v.name}) [Âm dubbing: {dub_volume:.1f}x (giữ nguyên cao độ tự nhiên, KHÔNG pitch down), "
+        f"Âm nền video gốc: {bg_volume:.2f}x (pitch down {pitch_down_pct}%, mute 0.1s/0.9s)]..."
+    )
     if on_progress:
         on_progress(5, f"Bắt đầu render video lồng tiếng: {out_v.name}...")
 
