@@ -302,6 +302,9 @@ def cli_download_series(
     custom_endpoint: Optional[str] = None,
     custom_api_key: Optional[str] = None,
     translate_model: Optional[str] = None,
+    dubbing: bool = True,
+    tts_voice: str = "Ngọc Huyền",
+    tts_batch_size: int = 30,
 ) -> Optional[Path]:
     """
     Download selected episodes of a series with concurrent multi-threading
@@ -489,6 +492,9 @@ def cli_download_series(
             custom_endpoint=custom_endpoint,
             custom_api_key=custom_api_key,
             translate_model=translate_model,
+            dubbing=dubbing,
+            tts_voice=tts_voice,
+            tts_batch_size=tts_batch_size,
         )
 
         if merged_file and clean_parts:
@@ -528,11 +534,14 @@ def cli_merge_folder(
     custom_endpoint: Optional[str] = None,
     custom_api_key: Optional[str] = None,
     translate_model: Optional[str] = None,
+    dubbing: bool = True,
+    tts_voice: str = "Ngọc Huyền",
+    tts_batch_size: int = 30,
 ) -> Optional[Path]:
     """
     Merge all video files in a folder into one continuous video with live CLI progress bar,
     then automatically upload to storage.to, extract SRT subtitles with CapCut ASR,
-    and translate subtitles to Vietnamese with LLM.
+    translate subtitles to Vietnamese with LLM, and dub video with VieNeu-TTS.
     """
     folder = Path(folder_path).resolve()
     if not folder.exists() or not folder.is_dir():
@@ -577,6 +586,10 @@ def cli_merge_folder(
             p_lbl = translate_prompt or "ai_tong_hop_thong_minh"
             m_lbl = translate_model or "gemini-lite"
             print(f"🇻🇳 Dịch sang Tiếng Việt : \033[1;32mBật\033[0m (Prompt: \033[1;33m{p_lbl}\033[0m | Model: \033[1;36m{m_lbl}\033[0m)")
+            if dubbing:
+                print(f"🦜 Lồng tiếng VieNeu-TTS: \033[1;32mBật\033[0m (Giọng: \033[1;33m{tts_voice}\033[0m | Batch: \033[1;36m{tts_batch_size}\033[0m segments)")
+            else:
+                print("🦜 Lồng tiếng VieNeu-TTS: Tắt")
         else:
             print(f"🇻🇳 Dịch sang Tiếng Việt : Tắt")
     print(f"💾 File đầu ra           : \033[1;36m{final_output}\033[0m")
@@ -604,6 +617,9 @@ def cli_merge_folder(
         "custom_endpoint": custom_endpoint,
         "custom_api_key": custom_api_key,
         "translate_model": translate_model,
+        "dubbing": bool(dubbing),
+        "tts_voice": str(tts_voice or "Ngọc Huyền"),
+        "tts_batch_size": int(tts_batch_size or 30),
     }
 
     merge_pbar = tqdm(
@@ -633,6 +649,8 @@ def cli_merge_folder(
             ("video_url", "🎬 [Storage.to] Link Video FULL", "\033[1;35m"),
             ("srt_url", "📝 [Storage.to] Link Subtitle Gốc", "\033[1;35m"),
             ("translated_srt_url", "🇻🇳 [Storage.to] Link Subtitle Dịch", "\033[1;32m"),
+            ("dubbed_audio_url", "🎙️ [Storage.to] Link Audio Dubbing", "\033[1;36m"),
+            ("dubbed_video_url", "🎬 [Storage.to] Link Video Dubbing", "\033[1;32m"),
         ]:
             val = options.get(k)
             if val and val not in seen_uploaded_urls:
@@ -651,6 +669,10 @@ def cli_merge_folder(
         srt_path = options.get("srt_path")
         translated_srt_url = options.get("translated_srt_url")
         translated_srt_path = options.get("translated_srt_path")
+        dubbed_audio_url = options.get("dubbed_audio_url")
+        dubbed_audio_path = options.get("dubbed_audio_path")
+        dubbed_video_url = options.get("dubbed_video_url")
+        dubbed_video_path = options.get("dubbed_video_path")
 
         print("\n" + "=" * 70)
         print("🎉 \033[1;32mGHÉP VIDEO & XUẤT BẢN THÀNH CÔNG RỰC RỠ!\033[0m")
@@ -667,6 +689,14 @@ def cli_merge_folder(
             print(f"🇻🇳 Phụ đề Dịch Tiếng Việt: \033[1;32m{translated_srt_path}\033[0m")
         if translated_srt_url:
             print(f"🌐 Link Sub Dịch storage.to: \033[1;35m{translated_srt_url}\033[0m")
+        if dubbed_audio_path:
+            print(f"🎙️ Audio Dubbing cục bộ   : \033[1;36m{dubbed_audio_path}\033[0m")
+        if dubbed_audio_url:
+            print(f"🌐 Link Audio Dubbing    : \033[1;36m{dubbed_audio_url}\033[0m")
+        if dubbed_video_path:
+            print(f"🎬 Video Dubbed cục bộ    : \033[1;32m{dubbed_video_path}\033[0m")
+        if dubbed_video_url:
+            print(f"🌐 Link Video Dubbing    : \033[1;32m{dubbed_video_url}\033[0m")
         print("=" * 70 + "\n")
         return merged_path
 
@@ -678,7 +708,9 @@ def cli_merge_folder(
         v_url = options.get("video_url")
         s_url = options.get("srt_url")
         t_url = options.get("translated_srt_url")
-        if v_url or s_url or t_url:
+        da_url = options.get("dubbed_audio_url")
+        dv_url = options.get("dubbed_video_url")
+        if v_url or s_url or t_url or da_url or dv_url:
             print("=" * 65)
             print("⚠️ \033[1;33mCÁC LIÊN KẾT ĐÃ KỊP TẢI LÊN THÀNH CÔNG TRƯỚC ĐÓ:\033[0m")
             if v_url:
@@ -687,6 +719,10 @@ def cli_merge_folder(
                 print(f"📝 Link Sub Gốc storage.to   : \033[1;35m{s_url}\033[0m")
             if t_url:
                 print(f"🇻🇳 Link Sub Dịch storage.to : \033[1;32m{t_url}\033[0m")
+            if da_url:
+                print(f"🎙️ Link Audio Dubbing      : \033[1;36m{da_url}\033[0m")
+            if dv_url:
+                print(f"🎬 Link Video Dubbing      : \033[1;32m{dv_url}\033[0m")
             print("=" * 65 + "\n")
         return None
 
@@ -936,6 +972,9 @@ def main():
     p_dl.add_argument("--custom-endpoint", "--endpoint", dest="custom_endpoint", type=str, default="", help="Custom LLM API endpoint (OpenAI-compatible)")
     p_dl.add_argument("--apikey", "--api-key", dest="custom_api_key", type=str, default="", help="Custom API key")
     p_dl.add_argument("--model", "--translate-model", dest="translate_model", type=str, default="", help="Model dịch thuật (vd: gemini-lite, deepseek-chat)")
+    p_dl.add_argument("--no-dubbing", action="store_true", help="Không tự động lồng tiếng video với VieNeu-TTS")
+    p_dl.add_argument("--voice", "--tts-voice", dest="tts_voice", type=str, default="Ngọc Huyền", help="Giọng đọc VieNeu-TTS (mặc định: Ngọc Huyền)")
+    p_dl.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=30, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 30)")
 
     # Command: search
     p_sc = subparsers.add_parser("search", help="Tìm kiếm phim theo từ khóa")
@@ -958,6 +997,9 @@ def main():
     p_mg.add_argument("--custom-endpoint", "--endpoint", dest="custom_endpoint", type=str, default="", help="Custom LLM API endpoint (OpenAI-compatible)")
     p_mg.add_argument("--apikey", "--api-key", dest="custom_api_key", type=str, default="", help="Custom API key")
     p_mg.add_argument("--model", "--translate-model", dest="translate_model", type=str, default="", help="Model dịch thuật (vd: gemini-lite, deepseek-chat)")
+    p_mg.add_argument("--no-dubbing", action="store_true", help="Không tự động lồng tiếng video với VieNeu-TTS")
+    p_mg.add_argument("--voice", "--tts-voice", dest="tts_voice", type=str, default="Ngọc Huyền", help="Giọng đọc VieNeu-TTS (mặc định: Ngọc Huyền)")
+    p_mg.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=30, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 30)")
 
     # Command: check-gpu
     subparsers.add_parser("check-gpu", help="Kiểm tra chi tiết GPU & bộ mã hóa NVIDIA NVENC")
@@ -1004,6 +1046,9 @@ def main():
             custom_endpoint=args.custom_endpoint,
             custom_api_key=args.custom_api_key,
             translate_model=args.translate_model,
+            dubbing=not args.no_dubbing,
+            tts_voice=args.tts_voice,
+            tts_batch_size=args.tts_batch_size,
         )
 
     elif args.command == "merge":
@@ -1023,6 +1068,9 @@ def main():
             custom_endpoint=args.custom_endpoint,
             custom_api_key=args.custom_api_key,
             translate_model=args.translate_model,
+            dubbing=not args.no_dubbing,
+            tts_voice=args.tts_voice,
+            tts_batch_size=args.tts_batch_size,
         )
 
     elif args.command == "register":

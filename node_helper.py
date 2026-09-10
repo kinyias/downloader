@@ -2467,6 +2467,21 @@ class TtsRouter:
             return out_path
 
         # Dispatch engine
+        if voice_id.lower().startswith("vieneu:") or any(voice_id.strip() == v["id"] for v in [
+            {"id": "Ngọc Huyền"}, {"id": "Minh Quân"}, {"id": "Minh Đức"}, {"id": "Phạm Tuyên"}, {"id": "Trúc Ly"},
+            {"id": "Mai Anh"}, {"id": "Quỳnh Anh"}, {"id": "Xuân Vĩnh"}, {"id": "Anh Khôi"},
+            {"id": "Mạnh Dũng"}, {"id": "Quang Sơn"}, {"id": "Ngọc Trân"}, {"id": "Adam"},
+            {"id": "Thái Sơn"}, {"id": "Thùy Dung"}, {"id": "Mỹ Duyên"}
+        ]):
+            try:
+                import vieneu_tts
+                v_clean = voice_id[7:].strip() if voice_id.lower().startswith("vieneu:") else voice_id.strip()
+                vtts = vieneu_tts.VieNeuTTS(voice=v_clean)
+                vtts.synthesize(text, out_path, voice=v_clean, speed=speed)
+                return out_path
+            except Exception as e:
+                log_message(f"VieNeu-TTS router fallback: {e}")
+
         if any(voice_id.startswith(p) for p in ["bv:", "capcut:", "icl:", "vn:"]) or voice_id in ICL_RESOURCE_IDS or voice_id in VN_HASH_SPEAKERS:
             CapcutTTS().synthesize(text, out_path, voice_id, speed)
         else:

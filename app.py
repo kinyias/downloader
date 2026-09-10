@@ -724,6 +724,8 @@ def api_merge_start():
         "storage_token": str(payload.get("storage_token", "")).strip(),
         "capcut_tdid": str(payload.get("capcut_tdid", "")).strip(),
         "source_lang": str(payload.get("source_lang", "auto")).strip(),
+        "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
+        "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
     }
 
     try:
@@ -770,6 +772,8 @@ def api_merge_start_online():
         "storage_token": str(payload.get("storage_token", "")).strip(),
         "capcut_tdid": str(payload.get("capcut_tdid", "")).strip(),
         "source_lang": str(payload.get("source_lang", "auto")).strip(),
+        "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
+        "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
     }
 
     try:

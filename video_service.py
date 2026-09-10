@@ -1241,6 +1241,10 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         srt_path = None
         translated_srt_url = None
         translated_srt_path = None
+        dubbed_audio_url = None
+        dubbed_audio_path = None
+        dubbed_video_url = None
+        dubbed_video_path = None
         storage_info = {}
 
         # 1. Tải video đã ghép lên storage.to
@@ -1390,6 +1394,147 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     print(f"[Storage.to Error] Lỗi tải phụ đề tiếng Việt: {vi_up_err}", flush=True)
                                     update_task(upload_translated_srt_error=str(vi_up_err))
 
+                            # 6. Lồng tiếng (Dubbing) video với VieNeu-TTS & Căn chỉnh âm thanh
+                            enable_dubbing = options.get("dubbing", True) in (True, "true", "True", 1, "1")
+                            dubbing_segs = cleaned_segs if cleaned_segs else segs
+                            if enable_dubbing and dubbing_segs and output_path.exists():
+                                try:
+                                    update_task(message="Đang chuẩn bị lồng tiếng với VieNeu-TTS...")
+                                    import vieneu_tts
+
+                                    tts_voice = options.get("tts_voice") or options.get("voice") or "Ngọc Huyền"
+                                    tts_batch_size = int(options.get("tts_batch_size") or options.get("batch_size") or 30)
+                                    tts_engine = vieneu_tts.VieNeuTTS(voice=tts_voice)
+
+                                    video_meta = probe_video_info(output_path)
+                                    video_duration = video_meta.get("duration") or 0.0
+
+                                    # Chuẩn bị thông tin LLM để dịch lại / rút gọn câu nếu audio bị dài > 0.3s
+                                    chat_url = ""
+                                    headers = {"Content-Type": "application/json"}
+                                    if custom_endpoint:
+                                        ep = custom_endpoint.rstrip("/")
+                                        chat_url = f"{ep}/chat/completions" if not ep.endswith("/chat/completions") else ep
+                                    elif os.getenv("CUSTOM_API_ENDPOINT"):
+                                        ep = os.getenv("CUSTOM_API_ENDPOINT").rstrip("/")
+                                        chat_url = f"{ep}/chat/completions" if not ep.endswith("/chat/completions") else ep
+                                    else:
+                                        chat_url = "https://api.deepseek.com/v1/chat/completions"
+
+                                    key = custom_api_key or os.getenv("CUSTOM_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
+                                    if key and key != "dummy":
+                                        headers["Authorization"] = f"Bearer {key}"
+
+                                    dest_dubbed_audio = output_path.with_name(f"{output_path.stem}_dubbing.mp3")
+
+                                    def _dub_progress_cb(pct, msg):
+                                        update_task(message=f"[Lồng tiếng] {msg}")
+
+                                    vieneu_tts.build_full_dubbed_audio(
+                                        segments=dubbing_segs,
+                                        total_duration=video_duration,
+                                        output_audio_path=dest_dubbed_audio,
+                                        tts=tts_engine,
+                                        voice=tts_voice,
+                                        batch_size=tts_batch_size,
+                                        chat_url=chat_url,
+                                        headers=headers,
+                                        model=translate_model or "gemini-lite",
+                                        on_progress=_dub_progress_cb,
+                                    )
+
+                                    if dest_dubbed_audio.exists():
+                                        dubbed_audio_path = str(dest_dubbed_audio)
+                                        update_task(
+                                            dubbed_audio_path=dubbed_audio_path,
+                                            message=f"Đã tạo file audio dubbing hoàn chỉnh: {dest_dubbed_audio.name}",
+                                        )
+
+                                        # Upload file audio dubbing hoàn chỉnh lên storage.to
+                                        if upload_to_storage:
+                                            try:
+                                                update_task(message="Đang tải audio dubbing lên storage.to...")
+
+                                                def _upload_dub_audio_cb(pct, msg):
+                                                    update_task(message=f"Đang tải audio dubbing lên storage.to ({pct:.0f}%)...")
+
+                                                dub_audio_storage_res = upload_file_to_storage_to(
+                                                    dest_dubbed_audio,
+                                                    api_token=storage_api_token,
+                                                    on_progress=_upload_dub_audio_cb,
+                                                )
+                                                dubbed_audio_url = dub_audio_storage_res.get("url")
+                                                storage_info["dubbed_audio"] = dub_audio_storage_res
+                                                update_task(
+                                                    dubbed_audio_url=dubbed_audio_url,
+                                                    message=f"Đã tải audio dubbing lên storage.to: {dubbed_audio_url}",
+                                                )
+                                                print("\n" + "=" * 65, flush=True)
+                                                print("🎙️ [STORAGE.TO - AUDIO DUBBING] Tải lên thành công!", flush=True)
+                                                print(f"🌐 Link Audio Dubbing : \033[1;36m{dubbed_audio_url}\033[0m", flush=True)
+                                                print("=" * 65 + "\n", flush=True)
+                                            except Exception as dub_audio_up_err:
+                                                print(f"[Storage.to Error] Lỗi tải audio dubbing: {dub_audio_up_err}", flush=True)
+                                                update_task(upload_dubbed_audio_error=str(dub_audio_up_err))
+
+                                        # 7. Render ghép audio dubbing vào video (giảm âm gốc còn 0.25, mute 0.1s mỗi 0.9s, pitch down 5%)
+                                        try:
+                                            update_task(message="Đang render ghép video với audio dubbing & hiệu ứng âm thanh nền...")
+                                            dest_dubbed_video = output_path.with_name(f"{output_path.stem}_dubbed.mp4")
+
+                                            def _render_vid_cb(pct, msg):
+                                                update_task(message=f"[Render Dubbed Video] {msg}")
+
+                                            vieneu_tts.render_dubbed_video(
+                                                video_path=output_path,
+                                                dubbed_audio_path=dest_dubbed_audio,
+                                                output_video_path=dest_dubbed_video,
+                                                bg_volume=0.25,
+                                                pitch_down_pct=5.0,
+                                                on_progress=_render_vid_cb,
+                                            )
+
+                                            if dest_dubbed_video.exists():
+                                                dubbed_video_path = str(dest_dubbed_video)
+                                                update_task(
+                                                    dubbed_video_path=dubbed_video_path,
+                                                    message=f"Đã render video lồng tiếng thành công: {dest_dubbed_video.name}",
+                                                )
+
+                                                # Upload video lồng tiếng lên storage.to
+                                                if upload_to_storage:
+                                                    try:
+                                                        update_task(message="Đang tải video lồng tiếng lên storage.to...")
+
+                                                        def _upload_dub_vid_cb(pct, msg):
+                                                            update_task(message=f"Đang tải video lồng tiếng lên storage.to ({pct:.0f}%)...")
+
+                                                        dub_vid_storage_res = upload_file_to_storage_to(
+                                                            dest_dubbed_video,
+                                                            api_token=storage_api_token,
+                                                            on_progress=_upload_dub_vid_cb,
+                                                        )
+                                                        dubbed_video_url = dub_vid_storage_res.get("url")
+                                                        storage_info["dubbed_video"] = dub_vid_storage_res
+                                                        update_task(
+                                                            dubbed_video_url=dubbed_video_url,
+                                                            message=f"Đã tải video lồng tiếng lên storage.to: {dubbed_video_url}",
+                                                        )
+                                                        print("\n" + "=" * 65, flush=True)
+                                                        print("🎬 [STORAGE.TO - VIDEO DUBBING] Tải lên thành công!", flush=True)
+                                                        print(f"🌐 Link Video Dubbing : \033[1;32m{dubbed_video_url}\033[0m", flush=True)
+                                                        print("=" * 65 + "\n", flush=True)
+                                                    except Exception as dub_vid_up_err:
+                                                        print(f"[Storage.to Error] Lỗi tải video lồng tiếng: {dub_vid_up_err}", flush=True)
+                                                        update_task(upload_dubbed_video_error=str(dub_vid_up_err))
+                                        except Exception as render_err:
+                                            print(f"[Dubbing Render Error] Lỗi render video lồng tiếng: {render_err}", flush=True)
+                                            update_task(render_dubbed_video_error=str(render_err))
+
+                                except Exception as dub_err:
+                                    print(f"[Dubbing Error] Lỗi trong quá trình lồng tiếng VieNeu-TTS: {dub_err}", flush=True)
+                                    update_task(dubbing_error=str(dub_err))
+
                     except Exception as trans_err:
                         print(f"[Translation Error] Lỗi dịch phụ đề tiếng Việt: {trans_err}", flush=True)
                         update_task(translation_error=str(trans_err))
@@ -1399,7 +1544,9 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                 update_task(asr_error=str(asr_err))
 
         final_msg = "Ghép video thành công!"
-        if video_url and translated_srt_url:
+        if video_url and dubbed_video_url:
+            final_msg = "Ghép video, dịch phụ đề & lồng tiếng VieNeu-TTS thành công! Đã tải lên storage.to"
+        elif video_url and translated_srt_url:
             final_msg = "Ghép video & dịch phụ đề tiếng Việt thành công! Đã tải lên storage.to"
         elif video_url and srt_url:
             final_msg = "Ghép video & trích xuất phụ đề thành công! Đã tải lên storage.to"
@@ -1415,6 +1562,10 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             "srt_path": srt_path,
             "translated_srt_url": translated_srt_url,
             "translated_srt_path": translated_srt_path,
+            "dubbed_audio_url": dubbed_audio_url,
+            "dubbed_audio_path": dubbed_audio_path,
+            "dubbed_video_url": dubbed_video_url,
+            "dubbed_video_path": dubbed_video_path,
             "storage_info": storage_info,
             "output_size": out_size,
             "output_size_str": format_size(out_size),
@@ -1431,6 +1582,12 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             video_url=video_url,
             srt_url=srt_url,
             srt_path=srt_path,
+            translated_srt_url=translated_srt_url,
+            translated_srt_path=translated_srt_path,
+            dubbed_audio_url=dubbed_audio_url,
+            dubbed_audio_path=dubbed_audio_path,
+            dubbed_video_url=dubbed_video_url,
+            dubbed_video_path=dubbed_video_path,
             storage_info=storage_info,
             output_size=out_size,
             output_size_str=format_size(out_size),
