@@ -1409,7 +1409,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     video_meta = probe_video_info(output_path)
                                     video_duration = video_meta.get("duration") or 0.0
 
-                                    # Chuẩn bị thông tin LLM để dịch lại / rút gọn câu nếu audio bị dài > 0.3s
+                                    # Chuẩn bị thông tin LLM để dịch lại / rút gọn câu nếu sau khi align (tận dụng khoảng trống, tăng tốc 1.2x) vẫn thiếu > 0.3s
                                     chat_url = ""
                                     headers = {"Content-Type": "application/json"}
                                     if custom_endpoint:
@@ -1440,6 +1440,8 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                         chat_url=chat_url,
                                         headers=headers,
                                         model=translate_model or "gemini-lite",
+                                        max_speedup=float(options.get("max_speedup") or options.get("tts_speedup") or 1.2),
+                                        tolerance=float(options.get("tolerance") or options.get("tts_tolerance") or 0.3),
                                         on_progress=_dub_progress_cb,
                                     )
 

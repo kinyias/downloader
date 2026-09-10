@@ -4,13 +4,16 @@ VieNeu-TTS Integration & Audio Alignment Pipeline for Video Dubbing.
 Provides:
 - VieNeuTTS client wrapper (v3 Turbo 48kHz, preset voices, CPU/GPU auto-detection)
 - Duration measurement via ffprobe/ffmpeg
-- Audio alignment strategy:
-    * Speed up audio up to 1.2x (via atempo) if audio exceeds subtitle duration
-    * Center padding (fill silence on both sides equally) if audio is shorter than subtitle
-- Strict duration verification:
-    * Check if audio exceeds subtitle duration by > 0.3s
-    * Attempt 1: Regenerate audio once
-    * Attempt 2: Re-translate / condense text to be strictly shorter via LLM, then regenerate
+- Intelligent audio alignment & gap allocation strategy:
+    * Audio is allowed to be longer than subtitle duration by utilizing available silence gaps
+      between utterances, while strictly never colliding with previous or next audio clips.
+    * Speed up audio up to 1.2x (via ffmpeg atempo) if audio exceeds subtitle duration.
+    * Center padding (fill silence on both sides equally) if audio is shorter than subtitle.
+- Strict deficit verification (> 0.3s):
+    * Only if after utilizing all available space without touching adjacent audio and speeding up 1.2x,
+      the space is STILL lacking by > 0.3s for the audio:
+        - Attempt 1: Regenerate audio once with VieNeu-TTS
+        - Attempt 2: Re-translate / condense text to be strictly shorter via LLM, then regenerate
 - Full dubbing master track builder matching video timeline exactly
 - Video dubbing renderer with background audio modification:
     * Original audio volume reduced to 0.25
@@ -369,20 +372,123 @@ class VieNeuTTS:
         return results
 
 
+def calculate_segment_timing_and_excess(
+    raw_dur: float,
+    seg_start: float,
+    seg_end: float,
+    prev_audio_end: float = 0.0,
+    next_seg_start: Optional[float] = None,
+    max_speedup: float = 1.2,
+    tolerance: float = 0.3,
+    min_gap: float = 0.05,
+) -> Dict[str, Any]:
+    """
+    Tính toán chiến lược căn chỉnh audio theo không gian trống thực tế:
+    - Audio có thể dài hơn subtitle nhưng tuyệt đối không chạm audio phía trước hoặc phía sau.
+    - Không gian khả dụng được giới hạn giữa (prev_audio_end + min_gap) và (next_seg_start - min_gap).
+    - Tăng tốc audio tối đa max_speedup (1.2x).
+    - Chỉ khi sau khi đã tận dụng hết khoảng trống khả dụng và tăng tốc 1.2x mà vẫn thiếu > tolerance (0.3s)
+      thì mới báo deficit > 0.3s để kích hoạt tạo lại audio hoặc rút gọn LLM.
+    """
+    target_dur = max(0.05, seg_end - seg_start)
+    raw_dur = max(0.01, float(raw_dur))
+    max_speedup = max(1.0, float(max_speedup or 1.2))
+    tolerance = max(0.0, float(tolerance if tolerance is not None else 0.3))
+    min_gap = max(0.0, float(min_gap if min_gap is not None else 0.05))
+
+    earliest_start = (prev_audio_end + min_gap) if prev_audio_end > 0 else 0.0
+    latest_end = (next_seg_start - min_gap) if (next_seg_start is not None and next_seg_start > 0) else (seg_end + 3600.0)
+
+    # Đảm bảo latest_end không nhỏ hơn earliest_start
+    if latest_end <= earliest_start:
+        latest_end = earliest_start + target_dur
+
+    # Trường hợp 1: Audio ngắn hơn hoặc bằng subtitle -> Căn giữa trong [seg_start, seg_end]
+    if raw_dur <= target_dur:
+        pad_total = target_dur - raw_dur
+        pad_left = pad_total / 2.0
+        actual_start = max(earliest_start, seg_start)
+        actual_end = min(latest_end, actual_start + target_dur)
+        return {
+            "speed_factor": 1.0,
+            "actual_start": actual_start,
+            "actual_end": actual_end,
+            "allocated_dur": max(0.05, actual_end - actual_start),
+            "pad_left": pad_left,
+            "deficit": 0.0,
+            "needs_retry": False,
+        }
+
+    # Trường hợp 2: Audio dài hơn subtitle nhưng có thể vừa khít subtitle với speedup <= max_speedup
+    desired_speed = raw_dur / target_dur
+    if desired_speed <= max_speedup:
+        actual_start = max(earliest_start, seg_start)
+        actual_end = min(latest_end, actual_start + target_dur)
+        return {
+            "speed_factor": desired_speed,
+            "actual_start": actual_start,
+            "actual_end": actual_end,
+            "allocated_dur": max(0.05, actual_end - actual_start),
+            "pad_left": 0.0,
+            "deficit": 0.0,
+            "needs_retry": False,
+        }
+
+    # Trường hợp 3: Audio dài hơn subtitle vượt quá max_speedup (1.2x)
+    # Tăng tốc tối đa 1.2x, thời lượng đạt được là sped_dur = raw_dur / max_speedup
+    sped_dur = raw_dur / max_speedup
+
+    # Audio có thể dài hơn subtitle nhưng không chạm audio phía trước hoặc phía sau
+    # Thử đặt audio bắt đầu tại seg_start
+    tentative_start = max(earliest_start, seg_start)
+    tentative_end = tentative_start + sped_dur
+
+    if tentative_end <= latest_end:
+        # Vừa vặn không gian phía sau, không chạm audio sau
+        actual_start = tentative_start
+        actual_end = tentative_end
+        deficit = 0.0
+    else:
+        # Bị tràn qua latest_end -> thử lùi nhẹ về phía trước vào khoảng trống trước seg_start
+        shift = tentative_end - latest_end
+        new_start = tentative_start - shift
+        if new_start >= earliest_start:
+            # Lùi về trước thành công mà không chạm audio trước!
+            actual_start = new_start
+            actual_end = latest_end
+            deficit = 0.0
+        else:
+            # Kể cả lùi tối đa về earliest_start vẫn không đủ chỗ
+            actual_start = earliest_start
+            actual_end = latest_end
+            avail_slot = max(0.05, actual_end - actual_start)
+            deficit = max(0.0, sped_dur - avail_slot)
+
+    needs_retry = deficit > tolerance
+    return {
+        "speed_factor": max_speedup,
+        "actual_start": actual_start,
+        "actual_end": actual_end,
+        "allocated_dur": max(0.05, actual_end - actual_start),
+        "pad_left": 0.0,
+        "deficit": deficit,
+        "needs_retry": needs_retry,
+    }
+
+
 def align_and_pad_audio_segment(
     input_audio_path: Path | str,
     target_duration: float,
     output_audio_path: Path | str,
-    max_speedup: float = 1.2,
+    speed_factor: float = 1.0,
+    pad_left: float = 0.0,
 ) -> Tuple[Path, float]:
     """
-    Apply audio alignment strategy to match subtitle segment duration precisely:
-    1. If audio_dur > target_duration:
-       Speed up audio up to max_speedup (default 1.2x) using ffmpeg 'atempo'.
-    2. If audio_dur < target_duration:
-       Pad silence equally on BOTH sides (center-padding) so the spoken words are centered
-       in the subtitle time window.
-    3. Guarantees output audio duration matches target_duration exactly.
+    Căn chỉnh audio segment theo target_duration và cấu hình speed/pad đã tính toán:
+    1. Tăng tốc bằng ffmpeg 'atempo' nếu speed_factor > 1.01.
+    2. Chèn khoảng lặng bên trái (pad_left) nếu có (center-padding).
+    3. Nếu thời lượng audio ngắn hơn target_duration: bổ sung khoảng lặng bên phải (apad) và trim về target_duration.
+    4. Nếu thời lượng audio dài hơn target_duration (dư <= 0.3s): fade-out 0.05s ở đuôi và trim về target_duration.
     """
     in_p = Path(input_audio_path).resolve()
     out_p = Path(output_audio_path).resolve()
@@ -402,33 +508,27 @@ def align_and_pad_audio_segment(
     current_audio = in_p
     current_dur = orig_dur
 
-    # Step 1: Speed up audio up to 1.2x if it is longer than target_duration
-    if current_dur > target_dur:
-        speed_factor = current_dur / target_dur
-        # Cap speed factor at max_speedup (1.2x)
-        speed_factor = min(max_speedup, max(1.0, speed_factor))
-        if speed_factor > 1.01:
-            sped_p = out_p.with_name(f"{out_p.stem}_sped_{int(time.time()*1000)%10000}.wav")
-            cmd_speed = [
-                ffmpeg, "-y", "-i", str(current_audio),
-                "-af", f"atempo={speed_factor:.4f}",
-                str(sped_p)
-            ]
-            res = subprocess.run(cmd_speed, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if res.returncode == 0 and sped_p.exists():
-                current_audio = sped_p
-                current_dur = get_audio_duration_ffprobe(sped_p)
+    # Bước 1: Áp dụng speedup nếu speed_factor > 1.01
+    if speed_factor > 1.01:
+        sped_p = out_p.with_name(f"{out_p.stem}_sped_{int(time.time()*1000)%10000}.wav")
+        cmd_speed = [
+            ffmpeg, "-y", "-i", str(current_audio),
+            "-af", f"atempo={speed_factor:.4f}",
+            str(sped_p)
+        ]
+        res = subprocess.run(cmd_speed, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res.returncode == 0 and sped_p.exists():
+            current_audio = sped_p
+            current_dur = get_audio_duration_ffprobe(sped_p)
 
-    # Step 2: Center padding (lắp đầy khoảng trống âm thanh 2 bên)
-    if current_dur < target_dur:
-        gap = target_dur - current_dur
-        pad_left = gap / 2.0
-        pad_right = gap - pad_left
-        pad_left_ms = max(0, int(round(pad_left * 1000)))
-
-        # Use adelay for left padding, apad for right padding
-        # adelay delays the audio, apad extends audio at the end, then trim to target_dur
-        af_filter = f"adelay={pad_left_ms}|{pad_left_ms},apad=pad_dur={pad_right + 0.5:.4f},atrim=0:{target_dur:.4f}"
+    # Bước 2: Padding & Trim để khớp chính xác target_dur
+    pad_left_ms = max(0, int(round(pad_left * 1000)))
+    if pad_left_ms > 5 or current_dur < target_dur:
+        pad_right = max(0.0, target_dur - (current_dur + pad_left))
+        if pad_left_ms > 5:
+            af_filter = f"adelay={pad_left_ms}|{pad_left_ms},apad=pad_dur={pad_right + 0.5:.4f},atrim=0:{target_dur:.4f}"
+        else:
+            af_filter = f"apad=pad_dur={pad_right + 0.5:.4f},atrim=0:{target_dur:.4f}"
         cmd_pad = [
             ffmpeg, "-y", "-i", str(current_audio),
             "-af", af_filter,
@@ -436,11 +536,9 @@ def align_and_pad_audio_segment(
         ]
         res = subprocess.run(cmd_pad, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if res.returncode != 0 or not out_p.exists():
-            # Fallback simple copy and trim
             shutil.copyfile(current_audio, out_p)
     else:
-        # Audio is still slightly longer than or equal to target_dur (exceeded even with 1.2x)
-        # Trim smoothly to target_dur with a tiny fade-out at the very end to avoid click
+        # Audio dài hơn hoặc bằng target_dur (dư <= 0.3s) -> fade-out 0.05s ở đuôi và trim
         fade_out_start = max(0.0, target_dur - 0.05)
         af_filter = f"atrim=0:{target_dur:.4f},afade=t=out:st={fade_out_start:.4f}:d=0.05"
         cmd_trim = [
@@ -452,7 +550,7 @@ def align_and_pad_audio_segment(
         if res.returncode != 0 or not out_p.exists():
             shutil.copyfile(current_audio, out_p)
 
-    # Clean up intermediate temp file if created
+    # Dọn dẹp file tạm sped_p nếu có
     if current_audio != in_p and current_audio.exists():
         try:
             current_audio.unlink(missing_ok=True)
@@ -471,20 +569,20 @@ def condense_segment_via_llm(
     model: str = "gemini-lite",
 ) -> Optional[str]:
     """
-    Re-translate / condense a single segment to fit within target_duration.
-    Computes a strict syllable budget (target_duration * 3.2 syllables) and prompts LLM.
+    Rút gọn hoặc dịch lại câu thoại qua LLM để khớp với thời lượng khả dụng.
+    Tính toán ngân sách âm tiết hợp lý (target_duration * 1.2 * 3.3).
     """
     import requests
     full_text = segment.get("spokenText") or segment.get("translation") or segment.get("text") or ""
     if not full_text:
         return None
 
-    # Vietnamese average speaking speed is ~3.5 syllables/s. Budget strictly at 3.0-3.3 syl/s
-    budget_syl = max(2, int(math.floor(target_duration * 3.2)))
+    # Tính ngân sách âm tiết dựa trên thời lượng khả dụng với tốc độ nói tiếng Việt tự nhiên
+    budget_syl = max(2, int(math.floor(target_duration * 1.2 * 3.3)))
 
     prompt = (
         f"Bạn là chuyên gia biên tập lồng tiếng phim. "
-        f"Câu thoại sau hiện đang quá dài, thời lượng video chỉ có {target_duration:.2f} giây. "
+        f"Câu thoại sau hiện đang quá dài, thời lượng video khả dụng là khoảng {target_duration:.2f} giây. "
         f"Hãy dịch hoặc rút gọn câu này sang tiếng Việt thật tự nhiên, súc tích, "
         f"BẮT BUỘC KHÔNG VƯỢT QUÁ {budget_syl} ÂM TIẾT nhưng vẫn giữ được ý cốt lõi của câu thoại.\n\n"
         f"Câu gốc: {segment.get('text', '')}\n"
@@ -507,7 +605,6 @@ def condense_segment_via_llm(
         if resp.status_code == 200:
             res_json = resp.json()
             short_text = res_json.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-            # Clean quotes or markdown
             short_text = short_text.strip('"`\' \n')
             if short_text:
                 return short_text
@@ -523,76 +620,104 @@ def process_segment_dubbing_with_retry(
     temp_dir: Path,
     voice: str = DEFAULT_VOICE,
     pre_generated_audio: Optional[Path | str] = None,
+    prev_audio_end: float = 0.0,
+    next_seg_start: Optional[float] = None,
     chat_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
     model: str = "gemini-lite",
+    max_speedup: float = 1.2,
+    tolerance: float = 0.3,
+    min_gap: float = 0.05,
     on_status: Optional[Callable[[str], None]] = None,
-) -> Path:
+) -> Tuple[Path, float, float]:
     """
-    Process dubbing for a single subtitle segment:
-    1. Check pre-generated audio (from infer_batch) or synthesize with VieNeu-TTS.
-    2. Check duration vs subtitle duration using ffprobe/ffmpeg.
-    3. If excess > 0.3s:
-       - Attempt 1: Regenerate audio once.
-       - Attempt 2: If still excess > 0.3s: Re-translate / condense text via LLM and regenerate.
-    4. Apply alignment (speedup up to 1.2x, center padding silence).
+    Xử lý lồng tiếng cho một phân đoạn phụ đề với chiến lược căn chỉnh không gian trống:
+    1. Kiểm tra audio đã tạo sẵn từ batch GPU hoặc tổng hợp mới với VieNeu-TTS.
+    2. Căn chỉnh audio theo không gian trống trước/sau và tăng tốc tối đa 1.2x.
+    3. Nếu sau khi align mà vẫn thiếu > tolerance (0.3s):
+       - Attempt 1: Tạo lại audio 1 lần nữa.
+       - Attempt 2: Nếu vẫn thiếu > tolerance (0.3s): Gọi LLM rút gọn câu và tạo lại audio.
+    4. Căn chỉnh chính xác và trả về: (aligned_audio_path, actual_start, actual_end).
     """
     s_id = str(segment.get("id", "0"))
     start_t = float(segment.get("startTime", 0.0))
     end_t = float(segment.get("endTime", 0.0))
-    target_dur = max(0.1, end_t - start_t)
+    target_dur = max(0.05, end_t - start_t)
 
     text = str(segment.get("spokenText") or segment.get("subtitleText") or segment.get("translation") or "").strip()
     seg_raw_path = temp_dir / f"seg_{s_id}_raw.wav"
     seg_aligned_path = temp_dir / f"seg_{s_id}_aligned.wav"
 
     if not text:
-        create_silent_audio(seg_aligned_path, target_dur)
-        return seg_aligned_path
+        plan = calculate_segment_timing_and_excess(0.0, start_t, end_t, prev_audio_end, next_seg_start, max_speedup, tolerance, min_gap)
+        create_silent_audio(seg_aligned_path, plan["allocated_dur"])
+        return seg_aligned_path, plan["actual_start"], plan["actual_end"]
 
-    # Step 1: Use pre-generated audio from batch phase or synthesize on demand
+    # Bước 1: Sử dụng audio từ batch phase hoặc synthesize theo yêu cầu
     if pre_generated_audio and Path(pre_generated_audio).exists() and Path(pre_generated_audio).stat().st_size > 0:
         seg_raw_path = Path(pre_generated_audio).resolve()
     else:
         tts.synthesize(text, seg_raw_path, voice=voice)
 
     audio_dur = get_audio_duration_ffprobe(seg_raw_path)
-    excess = audio_dur - target_dur
 
-    # Step 2: Verification with retry logic
-    if excess > 0.3:
+    # Bước 2: Lập kế hoạch căn chỉnh và kiểm tra độ thiếu hụt thời gian
+    plan = calculate_segment_timing_and_excess(
+        raw_dur=audio_dur,
+        seg_start=start_t,
+        seg_end=end_t,
+        prev_audio_end=prev_audio_end,
+        next_seg_start=next_seg_start,
+        max_speedup=max_speedup,
+        tolerance=tolerance,
+        min_gap=min_gap,
+    )
+
+    # Bước 3: Nếu thiếu > tolerance (0.3s) sau khi đã tăng tốc 1.2x và tận dụng khoảng trống
+    if plan["needs_retry"]:
         msg1 = (
-            f"[Dubbing Segment #{s_id}] Audio ({audio_dur:.2f}s) vượt thời lượng sub ({target_dur:.2f}s) "
-            f"quá {excess:.2f}s (> 0.3s). Đang tạo lại audio lần 1..."
+            f"[Dubbing Segment #{s_id}] Audio ({audio_dur:.2f}s) sau khi tăng tốc tối đa {max_speedup:.1f}x "
+            f"và tận dụng khoảng trống vẫn thiếu {plan['deficit']:.2f}s (> {tolerance:.1f}s). Đang tạo lại audio lần 1..."
         )
         _log(msg1)
         if on_status:
             on_status(msg1)
 
-        # Retry generation once
+        # Retry lần 1: Tạo lại audio
         seg_retry1_path = temp_dir / f"seg_{s_id}_retry1.wav"
         tts.synthesize(text, seg_retry1_path, voice=voice)
         audio_dur1 = get_audio_duration_ffprobe(seg_retry1_path)
-        excess1 = audio_dur1 - target_dur
 
         if audio_dur1 > 0:
-            seg_raw_path = seg_retry1_path
-            audio_dur = audio_dur1
-            excess = excess1
+            plan1 = calculate_segment_timing_and_excess(
+                raw_dur=audio_dur1,
+                seg_start=start_t,
+                seg_end=end_t,
+                prev_audio_end=prev_audio_end,
+                next_seg_start=next_seg_start,
+                max_speedup=max_speedup,
+                tolerance=tolerance,
+                min_gap=min_gap,
+            )
+            # Nếu audio mới ngắn hơn hoặc không còn thiếu > 0.3s thì cập nhật
+            if audio_dur1 < audio_dur or not plan1["needs_retry"]:
+                seg_raw_path = seg_retry1_path
+                audio_dur = audio_dur1
+                plan = plan1
 
-        # Check if still excess > 0.3s -> Trigger re-translation & condensation
-        if excess > 0.3 and chat_url and headers:
+        # Retry lần 2: Nếu vẫn thiếu > 0.3s -> Gọi LLM rút gọn câu
+        if plan["needs_retry"] and chat_url and headers:
             msg2 = (
-                f"[Dubbing Segment #{s_id}] Audio ({audio_dur:.2f}s) vẫn còn vượt khung ({target_dur:.2f}s) "
-                f"quá {excess:.2f}s (> 0.3s). Đang dịch lại / rút gọn câu để khớp thời lượng..."
+                f"[Dubbing Segment #{s_id}] Audio tạo lại vẫn thiếu {plan['deficit']:.2f}s (> {tolerance:.1f}s). "
+                f"Đang rút gọn / dịch lại câu qua LLM..."
             )
             _log(msg2)
             if on_status:
                 on_status(msg2)
 
-            condensed = condense_segment_via_llm(segment, target_dur, chat_url, headers, model)
+            condensed = condense_segment_via_llm(segment, plan["allocated_dur"], chat_url, headers, model)
             if condensed and condensed != text:
-                _log(f"    • Segment #{s_id} Bản mới: '{condensed}' (Thay vì '{text}')")
+                _log(f"    • Segment #{s_id} Bản rút gọn: '{condensed}' (thay cho '{text}')")
                 segment["spokenText"] = condensed
                 seg_condensed_path = temp_dir / f"seg_{s_id}_condensed.wav"
                 tts.synthesize(condensed, seg_condensed_path, voice=voice)
@@ -600,10 +725,26 @@ def process_segment_dubbing_with_retry(
                 if audio_dur2 > 0:
                     seg_raw_path = seg_condensed_path
                     audio_dur = audio_dur2
+                    plan = calculate_segment_timing_and_excess(
+                        raw_dur=audio_dur2,
+                        seg_start=start_t,
+                        seg_end=end_t,
+                        prev_audio_end=prev_audio_end,
+                        next_seg_start=next_seg_start,
+                        max_speedup=max_speedup,
+                        tolerance=tolerance,
+                        min_gap=min_gap,
+                    )
 
-    # Step 3: Align and pad audio segment (speedup <= 1.2x, center pad silence)
-    align_and_pad_audio_segment(seg_raw_path, target_dur, seg_aligned_path, max_speedup=1.2)
-    return seg_aligned_path
+    # Bước 4: Căn chỉnh chính xác và xuất file audio
+    align_and_pad_audio_segment(
+        input_audio_path=seg_raw_path,
+        target_duration=plan["allocated_dur"],
+        output_audio_path=seg_aligned_path,
+        speed_factor=plan["speed_factor"],
+        pad_left=plan["pad_left"],
+    )
+    return seg_aligned_path, plan["actual_start"], plan["actual_end"]
 
 
 def build_full_dubbed_audio(
@@ -616,11 +757,14 @@ def build_full_dubbed_audio(
     chat_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
     model: str = "gemini-lite",
+    max_speedup: float = 1.2,
+    tolerance: float = 0.3,
+    min_gap: float = 0.05,
     on_progress: Optional[Callable[[float, str], None]] = None,
 ) -> Path:
     """
-    Generate dubbing audio for each segment, align precisely, and assemble into
-    a single seamless audio track matching the total video duration.
+    Generate dubbing audio for each segment, align precisely with gap-aware placement,
+    and assemble into a single seamless audio track matching total video duration.
     Utilizes GPU batch inference via `infer_batch` (batch_size=30) for high throughput.
     """
     out_audio = Path(output_audio_path).resolve()
@@ -668,33 +812,40 @@ def build_full_dubbed_audio(
             seg_start = float(seg.get("startTime", 0.0))
             seg_end = float(seg.get("endTime", 0.0))
             seg_id = str(seg.get("id", idx + 1))
+            next_start = float(sorted_segs[idx + 1].get("startTime", 0.0)) if idx + 1 < total_segs else total_duration
 
             status_msg = f"Đang căn chỉnh thời lượng phân đoạn #{seg_id} ({idx+1}/{total_segs})..."
             if on_progress:
                 on_progress(pct, status_msg)
 
-            # Check if there is an inter-segment gap (silence) before this segment
-            if seg_start > current_time + 0.01:
-                silence_dur = seg_start - current_time
-                silence_file = temp_dir / f"gap_{idx}_silence.wav"
-                create_silent_audio(silence_file, silence_dur)
-                concat_list.append(silence_file)
-                current_time = seg_start
-
             # Process segment dubbing with retry & alignment, reusing pre-generated raw audio
-            aligned_seg_audio = process_segment_dubbing_with_retry(
+            aligned_seg_audio, actual_start, actual_end = process_segment_dubbing_with_retry(
                 segment=seg,
                 tts=tts,
                 temp_dir=temp_dir,
                 voice=voice,
                 pre_generated_audio=raw_audio_map.get(seg_id),
+                prev_audio_end=current_time,
+                next_seg_start=next_start,
                 chat_url=chat_url,
                 headers=headers,
                 model=model,
+                max_speedup=max_speedup,
+                tolerance=tolerance,
+                min_gap=min_gap,
                 on_status=lambda msg: on_progress(pct, msg) if on_progress else None,
             )
+
+            # Insert silence if there is an empty gap before actual_start
+            if actual_start > current_time + 0.005:
+                silence_dur = actual_start - current_time
+                silence_file = temp_dir / f"gap_{idx}_silence.wav"
+                create_silent_audio(silence_file, silence_dur)
+                concat_list.append(silence_file)
+                current_time = actual_start
+
             concat_list.append(aligned_seg_audio)
-            current_time = max(current_time, seg_end)
+            current_time = actual_end
 
         # Pad remaining silence at the end of video if needed
         if total_duration > current_time + 0.05:
