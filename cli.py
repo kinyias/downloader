@@ -614,6 +614,8 @@ def cli_merge_folder(
         ncols=100,
     )
 
+    seen_uploaded_urls = set()
+
     def _progress_cb(pct: float, speed: str, msg: str):
         target = min(100, int(round(pct)))
         if target > merge_pbar.n:
@@ -625,6 +627,17 @@ def cli_merge_folder(
             short_msg = msg if len(msg) < 40 else msg[:37] + "..."
             postfix_parts.append(short_msg)
         merge_pbar.set_postfix_str(" | ".join(postfix_parts))
+
+        # Hiển thị ngay lập tức các link storage.to ngay khi vừa upload xong, tránh mất link nếu session bị ngắt
+        for k, label, color in [
+            ("video_url", "🎬 [Storage.to] Link Video FULL", "\033[1;35m"),
+            ("srt_url", "📝 [Storage.to] Link Subtitle Gốc", "\033[1;35m"),
+            ("translated_srt_url", "🇻🇳 [Storage.to] Link Subtitle Dịch", "\033[1;32m"),
+        ]:
+            val = options.get(k)
+            if val and val not in seen_uploaded_urls:
+                seen_uploaded_urls.add(val)
+                tqdm.write(f"\n⚡ {label}: {color}{val}\033[0m\n")
 
     try:
         merged_path = video_service.merge_videos_sync(valid_files, options, progress_callback=_progress_cb)
@@ -659,7 +672,22 @@ def cli_merge_folder(
 
     except Exception as exc:
         merge_pbar.close()
-        print(f"\n❌ \033[1;31mLỗi trong quá trình ghép video:\033[0m {exc}\n")
+        print(f"\n❌ \033[1;31mLỗi trong quá trình xử lý:\033[0m {exc}\n")
+
+        # In ngay các link đã upload thành công trước khi bị lỗi
+        v_url = options.get("video_url")
+        s_url = options.get("srt_url")
+        t_url = options.get("translated_srt_url")
+        if v_url or s_url or t_url:
+            print("=" * 65)
+            print("⚠️ \033[1;33mCÁC LIÊN KẾT ĐÃ KỊP TẢI LÊN THÀNH CÔNG TRƯỚC ĐÓ:\033[0m")
+            if v_url:
+                print(f"🎬 Link Video storage.to   : \033[1;35m{v_url}\033[0m")
+            if s_url:
+                print(f"📝 Link Sub Gốc storage.to   : \033[1;35m{s_url}\033[0m")
+            if t_url:
+                print(f"🇻🇳 Link Sub Dịch storage.to : \033[1;32m{t_url}\033[0m")
+            print("=" * 65 + "\n")
         return None
 
 

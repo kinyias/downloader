@@ -1266,6 +1266,10 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                     video_url=video_url,
                     message=f"Đã tải video lên storage.to: {video_url}",
                 )
+                print("\n" + "=" * 65, flush=True)
+                print("🎬 [STORAGE.TO - VIDEO FULL] Tải lên thành công!", flush=True)
+                print(f"🌐 Link Video : \033[1;35m{video_url}\033[0m", flush=True)
+                print("=" * 65 + "\n", flush=True)
             except Exception as up_err:
                 print(f"[Storage.to Error] Lỗi tải video lên storage.to: {up_err}", flush=True)
                 update_task(upload_video_error=str(up_err))
@@ -1316,6 +1320,10 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                             srt_url=srt_url,
                             message=f"Đã tải phụ đề lên storage.to: {srt_url}",
                         )
+                        print("\n" + "=" * 65, flush=True)
+                        print("📝 [STORAGE.TO - SUBTITLE GỐC] Tải lên thành công!", flush=True)
+                        print(f"🌐 Link Sub Gốc : \033[1;35m{srt_url}\033[0m", flush=True)
+                        print("=" * 65 + "\n", flush=True)
                     except Exception as srt_up_err:
                         print(f"[Storage.to Error] Lỗi tải phụ đề: {srt_up_err}", flush=True)
                         update_task(upload_srt_error=str(srt_up_err))
@@ -1374,6 +1382,10 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                         translated_srt_url=translated_srt_url,
                                         message=f"Đã tải phụ đề tiếng Việt lên storage.to: {translated_srt_url}",
                                     )
+                                    print("\n" + "=" * 65, flush=True)
+                                    print("🇻🇳 [STORAGE.TO - SUBTITLE TIẾNG VIỆT] Tải lên thành công!", flush=True)
+                                    print(f"🌐 Link Sub Dịch : \033[1;32m{translated_srt_url}\033[0m", flush=True)
+                                    print("=" * 65 + "\n", flush=True)
                                 except Exception as vi_up_err:
                                     print(f"[Storage.to Error] Lỗi tải phụ đề tiếng Việt: {vi_up_err}", flush=True)
                                     update_task(upload_translated_srt_error=str(vi_up_err))
@@ -1639,6 +1651,7 @@ def merge_videos_sync(
     while thread.is_alive():
         with MERGE_LOCK:
             st = dict(MERGE_TASKS.get(task_id, {}))
+            options.update(st)
         cur_pct = float(st.get("progress") or 0.0)
         speed = str(st.get("speed") or "-")
         msg = str(st.get("message") or "")
