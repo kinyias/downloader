@@ -76,7 +76,8 @@ DEFAULT_POLICY = {
     "maxVideoSpeed": 1.0,
     "clusterMaxGapSec": 0.5,
     "clusterMergeSpeedEps": 0.05,
-    "residualTempoCap": 1.06
+    "residualTempoCap": 1.06,
+    "toleranceSec": 0.3
 }
 
 EZMAX_TRANSLATE_MODELS = [
@@ -947,7 +948,8 @@ def build_dubbing_plan(units: List[Dict[str, Any]], total_duration: float,
         v_speed = max(policy["minVideoSpeed"], min(policy["maxVideoSpeed"], spd))
         u["clusterId"] = cid
         u["videoSpeed"] = v_speed
-        if u["effSpeech"] > (u["plannedWindow"] / v_speed) + 0.001:
+        tol_sec = float(policy.get("toleranceSec", 0.3) if policy.get("toleranceSec") is not None else 0.3)
+        if u["effSpeech"] > (u["plannedWindow"] / v_speed) + tol_sec + 0.001:
             u["status"] = "timing_infeasible"
             infeasible_ids.append(u["unitId"])
         else:
@@ -1018,6 +1020,8 @@ def build_dubbing_plan(units: List[Dict[str, Any]], total_duration: float,
                 "borrowRightSec": round(u["borrowRightSec"], 3),
                 "plannedStart": round(u["plannedStart"], 3),
                 "plannedEnd": round(u["plannedEnd"], 3),
+                "plannedWindow": round(u["plannedWindow"], 3),
+                "effSpeech": round(u.get("effSpeech", u["speech"]), 3),
                 "clusterId": u.get("clusterId"),
                 "videoSpeed": round(u.get("videoSpeed", 1.0), 3),
                 "status": u.get("status", "fits")
@@ -2825,6 +2829,12 @@ def action_compute_timing_plan(data: Dict[str, Any]) -> Dict[str, Any]:
         plan["rateSuggestion"] = suggest_global_voice_rate(segments, {"totalDuration": tot_dur, "policy": data.get("policy")})
     return plan
 
+def compute_timing_plan(segments_or_data: Any, total_duration: float = 0.0, opts: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Compute timing plan for dubbing segments, supporting both direct arguments and payload dictionary."""
+    if isinstance(segments_or_data, dict):
+        return action_compute_timing_plan(segments_or_data)
+    return build_dubbing_plan(segments_or_data, total_duration, opts)
+
 def action_verify_dubbing_fit(data: Dict[str, Any]) -> Dict[str, Any]:
     return verify_dubbing_fit(data.get("segments") or [], data)
 
@@ -2928,6 +2938,8 @@ readCardinal = read_cardinal
 expandNumbersForSpeech = expand_numbers_for_speech
 viSyllablesSpoken = vi_syllables_spoken
 buildDubbingPlan = build_dubbing_plan
+compute_timing_plan = compute_timing_plan
+computeTimingPlan = compute_timing_plan
 planToTimelinePieces = plan_to_timeline_pieces
 applyGlobalSpeedToPieces = apply_global_speed_to_pieces
 mapPlanTime = map_plan_time

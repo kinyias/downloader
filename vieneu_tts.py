@@ -16,7 +16,8 @@ Provides:
         - Attempt 2: Re-translate / condense text to be strictly shorter via LLM, then regenerate
 - Full dubbing master track builder matching video timeline exactly
 - Video dubbing renderer with background audio modification:
-    * Original audio volume reduced to 0.25
+    * Original audio volume reduced to 0.2
+    * Dubbed audio volume amplified to 3.0
     * Periodic mute: every 0.9s mute for 0.1s (1.0s cycle)
     * Pitch down 5% (via rubberband or asetrate/atempo fallback)
     * Multiplexed & mixed with dubbing audio
@@ -372,110 +373,6 @@ class VieNeuTTS:
         return results
 
 
-def calculate_segment_timing_and_excess(
-    raw_dur: float,
-    seg_start: float,
-    seg_end: float,
-    prev_audio_end: float = 0.0,
-    next_seg_start: Optional[float] = None,
-    max_speedup: float = 1.2,
-    tolerance: float = 0.3,
-    min_gap: float = 0.05,
-) -> Dict[str, Any]:
-    """
-    Tính toán chiến lược căn chỉnh audio theo không gian trống thực tế:
-    - Audio có thể dài hơn subtitle nhưng tuyệt đối không chạm audio phía trước hoặc phía sau.
-    - Không gian khả dụng được giới hạn giữa (prev_audio_end + min_gap) và (next_seg_start - min_gap).
-    - Tăng tốc audio tối đa max_speedup (1.2x).
-    - Chỉ khi sau khi đã tận dụng hết khoảng trống khả dụng và tăng tốc 1.2x mà vẫn thiếu > tolerance (0.3s)
-      thì mới báo deficit > 0.3s để kích hoạt tạo lại audio hoặc rút gọn LLM.
-    """
-    target_dur = max(0.05, seg_end - seg_start)
-    raw_dur = max(0.01, float(raw_dur))
-    max_speedup = max(1.0, float(max_speedup or 1.2))
-    tolerance = max(0.0, float(tolerance if tolerance is not None else 0.3))
-    min_gap = max(0.0, float(min_gap if min_gap is not None else 0.05))
-
-    earliest_start = (prev_audio_end + min_gap) if prev_audio_end > 0 else 0.0
-    latest_end = (next_seg_start - min_gap) if (next_seg_start is not None and next_seg_start > 0) else (seg_end + 3600.0)
-
-    # Đảm bảo latest_end không nhỏ hơn earliest_start
-    if latest_end <= earliest_start:
-        latest_end = earliest_start + target_dur
-
-    # Trường hợp 1: Audio ngắn hơn hoặc bằng subtitle -> Căn giữa trong [seg_start, seg_end]
-    if raw_dur <= target_dur:
-        pad_total = target_dur - raw_dur
-        pad_left = pad_total / 2.0
-        actual_start = max(earliest_start, seg_start)
-        actual_end = min(latest_end, actual_start + target_dur)
-        return {
-            "speed_factor": 1.0,
-            "actual_start": actual_start,
-            "actual_end": actual_end,
-            "allocated_dur": max(0.05, actual_end - actual_start),
-            "pad_left": pad_left,
-            "deficit": 0.0,
-            "needs_retry": False,
-        }
-
-    # Trường hợp 2: Audio dài hơn subtitle nhưng có thể vừa khít subtitle với speedup <= max_speedup
-    desired_speed = raw_dur / target_dur
-    if desired_speed <= max_speedup:
-        actual_start = max(earliest_start, seg_start)
-        actual_end = min(latest_end, actual_start + target_dur)
-        return {
-            "speed_factor": desired_speed,
-            "actual_start": actual_start,
-            "actual_end": actual_end,
-            "allocated_dur": max(0.05, actual_end - actual_start),
-            "pad_left": 0.0,
-            "deficit": 0.0,
-            "needs_retry": False,
-        }
-
-    # Trường hợp 3: Audio dài hơn subtitle vượt quá max_speedup (1.2x)
-    # Tăng tốc tối đa 1.2x, thời lượng đạt được là sped_dur = raw_dur / max_speedup
-    sped_dur = raw_dur / max_speedup
-
-    # Audio có thể dài hơn subtitle nhưng không chạm audio phía trước hoặc phía sau
-    # Thử đặt audio bắt đầu tại seg_start
-    tentative_start = max(earliest_start, seg_start)
-    tentative_end = tentative_start + sped_dur
-
-    if tentative_end <= latest_end:
-        # Vừa vặn không gian phía sau, không chạm audio sau
-        actual_start = tentative_start
-        actual_end = tentative_end
-        deficit = 0.0
-    else:
-        # Bị tràn qua latest_end -> thử lùi nhẹ về phía trước vào khoảng trống trước seg_start
-        shift = tentative_end - latest_end
-        new_start = tentative_start - shift
-        if new_start >= earliest_start:
-            # Lùi về trước thành công mà không chạm audio trước!
-            actual_start = new_start
-            actual_end = latest_end
-            deficit = 0.0
-        else:
-            # Kể cả lùi tối đa về earliest_start vẫn không đủ chỗ
-            actual_start = earliest_start
-            actual_end = latest_end
-            avail_slot = max(0.05, actual_end - actual_start)
-            deficit = max(0.0, sped_dur - avail_slot)
-
-    needs_retry = deficit > tolerance
-    return {
-        "speed_factor": max_speedup,
-        "actual_start": actual_start,
-        "actual_end": actual_end,
-        "allocated_dur": max(0.05, actual_end - actual_start),
-        "pad_left": 0.0,
-        "deficit": deficit,
-        "needs_retry": needs_retry,
-    }
-
-
 def align_and_pad_audio_segment(
     input_audio_path: Path | str,
     target_duration: float,
@@ -484,7 +381,7 @@ def align_and_pad_audio_segment(
     pad_left: float = 0.0,
 ) -> Tuple[Path, float]:
     """
-    Căn chỉnh audio segment theo target_duration và cấu hình speed/pad đã tính toán:
+    Căn chỉnh audio segment theo target_duration và cấu hình speed/pad từ timing_plan của node_helper:
     1. Tăng tốc bằng ffmpeg 'atempo' nếu speed_factor > 1.01.
     2. Chèn khoảng lặng bên trái (pad_left) nếu có (center-padding).
     3. Nếu thời lượng audio ngắn hơn target_duration: bổ sung khoảng lặng bên phải (apad) và trim về target_duration.
@@ -631,14 +528,14 @@ def process_segment_dubbing_with_retry(
     on_status: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Path, float, float]:
     """
-    Xử lý lồng tiếng cho một phân đoạn phụ đề với chiến lược căn chỉnh không gian trống:
-    1. Kiểm tra audio đã tạo sẵn từ batch GPU hoặc tổng hợp mới với VieNeu-TTS.
-    2. Căn chỉnh audio theo không gian trống trước/sau và tăng tốc tối đa 1.2x.
-    3. Nếu sau khi align mà vẫn thiếu > tolerance (0.3s):
-       - Attempt 1: Tạo lại audio 1 lần nữa.
-       - Attempt 2: Nếu vẫn thiếu > tolerance (0.3s): Gọi LLM rút gọn câu và tạo lại audio.
-    4. Căn chỉnh chính xác và trả về: (aligned_audio_path, actual_start, actual_end).
+    Xử lý lồng tiếng cho một phân đoạn phụ đề sử dụng node_helper.verify_dubbing_fit & compute_timing_plan:
+    1. Kiểm tra audio đã tạo sẵn hoặc tổng hợp với VieNeu-TTS.
+    2. Sử dụng node_helper.verify_dubbing_fit để kiểm tra xem audio có vừa khung (sau khi borrow và tempo 1.2x) không.
+    3. Nếu không vừa (infeasible): tạo lại lần 1, nếu vẫn không vừa thì gọi LLM rút gọn câu.
+    4. Căn chỉnh audio theo plannedStart, plannedEnd, audioTempo từ timing_plan của node_helper.
     """
+    import node_helper
+
     s_id = str(segment.get("id", "0"))
     start_t = float(segment.get("startTime", 0.0))
     end_t = float(segment.get("endTime", 0.0))
@@ -649,9 +546,8 @@ def process_segment_dubbing_with_retry(
     seg_aligned_path = temp_dir / f"seg_{s_id}_aligned.wav"
 
     if not text:
-        plan = calculate_segment_timing_and_excess(0.0, start_t, end_t, prev_audio_end, next_seg_start, max_speedup, tolerance, min_gap)
-        create_silent_audio(seg_aligned_path, plan["allocated_dur"])
-        return seg_aligned_path, plan["actual_start"], plan["actual_end"]
+        create_silent_audio(seg_aligned_path, target_dur)
+        return seg_aligned_path, start_t, end_t
 
     # Bước 1: Sử dụng audio từ batch phase hoặc synthesize theo yêu cầu
     if pre_generated_audio and Path(pre_generated_audio).exists() and Path(pre_generated_audio).stat().st_size > 0:
@@ -661,61 +557,91 @@ def process_segment_dubbing_with_retry(
 
     audio_dur = get_audio_duration_ffprobe(seg_raw_path)
 
-    # Bước 2: Lập kế hoạch căn chỉnh và kiểm tra độ thiếu hụt thời gian
-    plan = calculate_segment_timing_and_excess(
-        raw_dur=audio_dur,
-        seg_start=start_t,
-        seg_end=end_t,
-        prev_audio_end=prev_audio_end,
-        next_seg_start=next_seg_start,
-        max_speedup=max_speedup,
-        tolerance=tolerance,
-        min_gap=min_gap,
-    )
+    # Cấu hình policy cho node_helper
+    policy = {
+        "residualTempoCap": float(max_speedup or 1.2),
+        "borrowSideMaxSec": 2.0,
+        "borrowSideMaxFrac": 0.8,
+        "borrowTotalMaxSec": 3.0,
+        "borrowTotalMaxFrac": 1.0,
+        "safetyGapSec": float(min_gap if min_gap is not None else 0.05),
+        "minVideoSpeed": 1.0,
+        "maxVideoSpeed": 1.0,
+        "toleranceSec": float(tolerance if tolerance is not None else 0.3),
+    }
 
-    # Bước 3: Nếu thiếu > tolerance (0.3s) sau khi đã tăng tốc 1.2x và tận dụng khoảng trống
-    if plan["needs_retry"]:
+    unit_item = {
+        "id": s_id,
+        "unitId": s_id,
+        "startTime": start_t,
+        "endTime": end_t,
+        "audioDuration": audio_dur,
+        "spokenText": text,
+    }
+
+    def _eval_fit(u_obj):
+        eval_units = []
+        if prev_audio_end > 0.0 and prev_audio_end < start_t:
+            eval_units.append({
+                "id": "_prev_sentinel",
+                "unitId": "_prev_sentinel",
+                "startTime": max(0.0, prev_audio_end - 1.0),
+                "endTime": prev_audio_end,
+                "audioDuration": 1.0,
+            })
+        eval_units.append(u_obj)
+        if next_seg_start is not None and next_seg_start > end_t:
+            eval_units.append({
+                "id": "_next_sentinel",
+                "unitId": "_next_sentinel",
+                "startTime": next_seg_start,
+                "endTime": next_seg_start + 1.0,
+                "audioDuration": 1.0,
+            })
+        tot_dur = (next_seg_start + 2.0) if (next_seg_start is not None and next_seg_start > end_t) else (end_t + 10.0)
+        return node_helper.verify_dubbing_fit(eval_units, {"totalDuration": tot_dur, "policy": policy})
+
+    def _extract_unit(res):
+        return next((u for u in res.get("plan", {}).get("units", []) if str(u.get("unitId")) == s_id), {})
+
+    fit_res = _eval_fit(unit_item)
+    is_infeasible = s_id in (fit_res.get("infeasibleUnitIds") or [])
+
+    if is_infeasible:
         msg1 = (
             f"[Dubbing Segment #{s_id}] Audio ({audio_dur:.2f}s) sau khi tăng tốc tối đa {max_speedup:.1f}x "
-            f"và tận dụng khoảng trống vẫn thiếu {plan['deficit']:.2f}s (> {tolerance:.1f}s). Đang tạo lại audio lần 1..."
+            f"và mượn khoảng trống vẫn thiếu > {tolerance:.1f}s theo node_helper. Đang tạo lại audio lần 1..."
         )
         _log(msg1)
         if on_status:
             on_status(msg1)
 
-        # Retry lần 1: Tạo lại audio
         seg_retry1_path = temp_dir / f"seg_{s_id}_retry1.wav"
         tts.synthesize(text, seg_retry1_path, voice=voice)
         audio_dur1 = get_audio_duration_ffprobe(seg_retry1_path)
 
         if audio_dur1 > 0:
-            plan1 = calculate_segment_timing_and_excess(
-                raw_dur=audio_dur1,
-                seg_start=start_t,
-                seg_end=end_t,
-                prev_audio_end=prev_audio_end,
-                next_seg_start=next_seg_start,
-                max_speedup=max_speedup,
-                tolerance=tolerance,
-                min_gap=min_gap,
-            )
-            # Nếu audio mới ngắn hơn hoặc không còn thiếu > 0.3s thì cập nhật
-            if audio_dur1 < audio_dur or not plan1["needs_retry"]:
+            unit_item["audioDuration"] = audio_dur1
+            recheck = _eval_fit(unit_item)
+            if s_id not in (recheck.get("infeasibleUnitIds") or []) or audio_dur1 < audio_dur:
                 seg_raw_path = seg_retry1_path
                 audio_dur = audio_dur1
-                plan = plan1
+                fit_res = recheck
+                is_infeasible = s_id in (recheck.get("infeasibleUnitIds") or [])
 
-        # Retry lần 2: Nếu vẫn thiếu > 0.3s -> Gọi LLM rút gọn câu
-        if plan["needs_retry"] and chat_url and headers:
+        # Attempt 2: Rút gọn câu qua LLM
+        if is_infeasible and chat_url and headers:
+            u_info = _extract_unit(fit_res)
+            planned_win = float(u_info.get("plannedWindow") or target_dur)
             msg2 = (
-                f"[Dubbing Segment #{s_id}] Audio tạo lại vẫn thiếu {plan['deficit']:.2f}s (> {tolerance:.1f}s). "
-                f"Đang rút gọn / dịch lại câu qua LLM..."
+                f"[Dubbing Segment #{s_id}] Audio tạo lại vẫn thiếu > {tolerance:.1f}s. "
+                f"Đang rút gọn câu qua LLM..."
             )
             _log(msg2)
             if on_status:
                 on_status(msg2)
 
-            condensed = condense_segment_via_llm(segment, plan["allocated_dur"], chat_url, headers, model)
+            condensed = condense_segment_via_llm(segment, planned_win, chat_url, headers, model)
             if condensed and condensed != text:
                 _log(f"    • Segment #{s_id} Bản rút gọn: '{condensed}' (thay cho '{text}')")
                 segment["spokenText"] = condensed
@@ -725,26 +651,26 @@ def process_segment_dubbing_with_retry(
                 if audio_dur2 > 0:
                     seg_raw_path = seg_condensed_path
                     audio_dur = audio_dur2
-                    plan = calculate_segment_timing_and_excess(
-                        raw_dur=audio_dur2,
-                        seg_start=start_t,
-                        seg_end=end_t,
-                        prev_audio_end=prev_audio_end,
-                        next_seg_start=next_seg_start,
-                        max_speedup=max_speedup,
-                        tolerance=tolerance,
-                        min_gap=min_gap,
-                    )
+                    unit_item["spokenText"] = condensed
+                    unit_item["audioDuration"] = audio_dur2
+                    fit_res = _eval_fit(unit_item)
 
-    # Bước 4: Căn chỉnh chính xác và xuất file audio
+    u_final = _extract_unit(fit_res)
+    p_start = float(u_final.get("plannedStart", start_t))
+    p_end = float(u_final.get("plannedEnd", end_t))
+    p_window = max(0.05, p_end - p_start)
+    tempo = float(u_final.get("audioTempo", 1.0))
+    eff_speech = audio_dur / tempo if tempo > 1e-6 else audio_dur
+    pad_left = max(0.0, (p_window - eff_speech) / 2.0) if eff_speech < p_window else 0.0
+
     align_and_pad_audio_segment(
         input_audio_path=seg_raw_path,
-        target_duration=plan["allocated_dur"],
+        target_duration=p_window,
         output_audio_path=seg_aligned_path,
-        speed_factor=plan["speed_factor"],
-        pad_left=plan["pad_left"],
+        speed_factor=tempo,
+        pad_left=pad_left,
     )
-    return seg_aligned_path, plan["actual_start"], plan["actual_end"]
+    return seg_aligned_path, p_start, p_end
 
 
 def build_full_dubbed_audio(
@@ -763,10 +689,19 @@ def build_full_dubbed_audio(
     on_progress: Optional[Callable[[float, str], None]] = None,
 ) -> Path:
     """
-    Generate dubbing audio for each segment, align precisely with gap-aware placement,
-    and assemble into a single seamless audio track matching total video duration.
-    Utilizes GPU batch inference via `infer_batch` (batch_size=30) for high throughput.
+    Tạo audio dubbing toàn diện dựa trên timing plan và verify_dubbing_fit từ node_helper:
+    1. Batch GPU inference với VieNeu-TTS để tạo audio thô.
+    2. Sử dụng node_helper.verify_dubbing_fit để kiểm tra toàn bộ các câu:
+       - Mượn khoảng trống 2 bên (không chạm câu trước/sau).
+       - Tăng tốc tối đa 1.2x.
+       - Cho phép dung sai 0.3s.
+    3. Nếu có phân đoạn infeasible (thiếu > 0.3s):
+       - Attempt 1: Tạo lại audio với VieNeu-TTS.
+       - Attempt 2: Rút gọn câu qua LLM và tạo lại audio.
+    4. Tính toán final timing_plan với node_helper.compute_timing_plan và lắp ráp audio timeline.
     """
+    import node_helper
+
     out_audio = Path(output_audio_path).resolve()
     out_audio.parent.mkdir(parents=True, exist_ok=True)
     temp_dir = Path(tempfile.mkdtemp(prefix="vieneu_dub_"))
@@ -776,13 +711,12 @@ def build_full_dubbed_audio(
     bs = max(1, int(batch_size or 30))
     _log(f"Bắt đầu lồng tiếng {total_segs} phân đoạn với VieNeu-TTS (infer_batch GPU, batch_size={bs}, Giọng: '{voice}')...")
 
-    # Sort segments by start time
+    # Sort segments theo thời gian bắt đầu
     sorted_segs = sorted(segments, key=lambda x: float(x.get("startTime", 0.0)))
     concat_list = []
-    current_time = 0.0
 
     try:
-        # Phase 1: Batch inference across all segments using GPU infer_batch (chunks of batch_size)
+        # Phase 1: Batch inference cho toàn bộ segments
         batch_items: List[Tuple[str, Path]] = []
         raw_audio_map: Dict[str, Path] = {}
 
@@ -806,46 +740,143 @@ def build_full_dubbed_audio(
             on_progress=_batch_prog_cb,
         )
 
-        # Phase 2: Alignment, duration verification, LLM retries, timeline assembly
+        # Đo thời lượng thực tế của từng file audio đã tạo
         for idx, seg in enumerate(sorted_segs):
-            pct = 60 + (idx / max(1, total_segs)) * 35  # 60% -> 95%
-            seg_start = float(seg.get("startTime", 0.0))
-            seg_end = float(seg.get("endTime", 0.0))
-            seg_id = str(seg.get("id", idx + 1))
-            next_start = float(sorted_segs[idx + 1].get("startTime", 0.0)) if idx + 1 < total_segs else total_duration
+            s_id = str(seg.get("id", idx + 1))
+            raw_path = raw_audio_map.get(s_id)
+            if raw_path and raw_path.exists() and raw_path.stat().st_size > 0:
+                seg["audioDuration"] = get_audio_duration_ffprobe(raw_path)
+            else:
+                seg["audioDuration"] = max(0.05, float(seg.get("endTime", 0.0)) - float(seg.get("startTime", 0.0)))
+            seg["unitId"] = s_id
 
-            status_msg = f"Đang căn chỉnh thời lượng phân đoạn #{seg_id} ({idx+1}/{total_segs})..."
+        # Phase 2: Timing Plan & Verification sử dụng node_helper
+        dubbing_policy = {
+            "residualTempoCap": float(max_speedup or 1.2),
+            "borrowSideMaxSec": 2.0,
+            "borrowSideMaxFrac": 0.8,
+            "borrowTotalMaxSec": 3.0,
+            "borrowTotalMaxFrac": 1.0,
+            "safetyGapSec": float(min_gap if min_gap is not None else 0.05),
+            "minVideoSpeed": 1.0,
+            "maxVideoSpeed": 1.0,
+            "toleranceSec": float(tolerance if tolerance is not None else 0.3),
+        }
+
+        if on_progress:
+            on_progress(60, "Đang kiểm tra độ khớp thời lượng dubbing bằng node_helper.verify_dubbing_fit...")
+
+        fit_res = node_helper.verify_dubbing_fit(
+            sorted_segs,
+            {"totalDuration": total_duration, "policy": dubbing_policy}
+        )
+        infeasible_ids = list(fit_res.get("infeasibleUnitIds") or [])
+        plan = fit_res.get("plan") or {}
+
+        # Nếu có phân đoạn thiếu > 0.3s
+        if infeasible_ids:
+            msg = f"Phát hiện {len(infeasible_ids)} phân đoạn thiếu > {tolerance:.1f}s theo verify_dubbing_fit: {infeasible_ids}"
+            _log(msg)
+            if on_progress:
+                on_progress(63, msg)
+
+            # Attempt 1: Thử tạo lại audio 1 lần nữa với VieNeu-TTS
+            for s_id in infeasible_ids:
+                seg = next((s for s in sorted_segs if str(s.get("id", s.get("unitId"))) == s_id), None)
+                if not seg:
+                    continue
+                text = str(seg.get("spokenText") or seg.get("subtitleText") or seg.get("translation") or "").strip()
+                seg_retry1_path = temp_dir / f"seg_{s_id}_retry1.wav"
+                _log(f"[Dubbing Segment #{s_id}] Đang tạo lại audio lần 1...")
+                tts.synthesize(text, seg_retry1_path, voice=voice)
+                new_dur = get_audio_duration_ffprobe(seg_retry1_path)
+                if new_dur > 0:
+                    seg["audioDuration"] = new_dur
+                    raw_audio_map[s_id] = seg_retry1_path
+
+            # Re-check bằng node_helper.verify_dubbing_fit
+            recheck = node_helper.verify_dubbing_fit(
+                sorted_segs,
+                {"totalDuration": total_duration, "policy": dubbing_policy}
+            )
+            still_infeasible = list(recheck.get("infeasibleUnitIds") or [])
+            plan = recheck.get("plan") or {}
+
+            # Attempt 2: Nếu vẫn còn phân đoạn thiếu > 0.3s -> Rút gọn câu qua LLM
+            if still_infeasible and chat_url and headers:
+                units_dict = {str(u["unitId"]): u for u in plan.get("units", [])}
+                for s_id in still_infeasible:
+                    seg = next((s for s in sorted_segs if str(s.get("id", s.get("unitId"))) == s_id), None)
+                    if not seg:
+                        continue
+                    u_info = units_dict.get(s_id) or {}
+                    target_win = float(u_info.get("plannedWindow") or (float(seg.get("endTime")) - float(seg.get("startTime"))))
+                    _log(f"[Dubbing Segment #{s_id}] Vẫn thiếu > {tolerance:.1f}s sau lần 1. Đang gọi LLM rút gọn câu...")
+                    condensed = condense_segment_via_llm(seg, target_win, chat_url, headers, model)
+                    if condensed and condensed != seg.get("spokenText"):
+                        _log(f"    • Segment #{s_id} Bản rút gọn: '{condensed}'")
+                        seg["spokenText"] = condensed
+                        seg_condensed_path = temp_dir / f"seg_{s_id}_condensed.wav"
+                        tts.synthesize(condensed, seg_condensed_path, voice=voice)
+                        new_dur = get_audio_duration_ffprobe(seg_condensed_path)
+                        if new_dur > 0:
+                            seg["audioDuration"] = new_dur
+                            raw_audio_map[s_id] = seg_condensed_path
+
+        # Chốt timing plan cuối cùng bằng node_helper.compute_timing_plan
+        final_plan = node_helper.compute_timing_plan(
+            sorted_segs,
+            total_duration,
+            {"policy": dubbing_policy}
+        )
+        plan_units_map = {str(u["unitId"]): u for u in final_plan.get("units", [])}
+
+        # Phase 3: Alignment, Audio Processing & Timeline Assembly
+        current_time = 0.0
+        for idx, seg in enumerate(sorted_segs):
+            pct = 70 + (idx / max(1, total_segs)) * 25  # 70% -> 95%
+            s_id = str(seg.get("id", idx + 1))
+            u_plan = plan_units_map.get(s_id) or {}
+
+            status_msg = f"Đang căn chỉnh thời lượng phân đoạn #{s_id} ({idx+1}/{total_segs})..."
             if on_progress:
                 on_progress(pct, status_msg)
 
-            # Process segment dubbing with retry & alignment, reusing pre-generated raw audio
-            aligned_seg_audio, actual_start, actual_end = process_segment_dubbing_with_retry(
-                segment=seg,
-                tts=tts,
-                temp_dir=temp_dir,
-                voice=voice,
-                pre_generated_audio=raw_audio_map.get(seg_id),
-                prev_audio_end=current_time,
-                next_seg_start=next_start,
-                chat_url=chat_url,
-                headers=headers,
-                model=model,
-                max_speedup=max_speedup,
-                tolerance=tolerance,
-                min_gap=min_gap,
-                on_status=lambda msg: on_progress(pct, msg) if on_progress else None,
+            planned_start = float(u_plan.get("plannedStart", seg.get("startTime", 0.0)))
+            planned_end = float(u_plan.get("plannedEnd", seg.get("endTime", 0.0)))
+            planned_window = max(0.05, planned_end - planned_start)
+            tempo = float(u_plan.get("audioTempo", 1.0))
+            raw_audio = raw_audio_map.get(s_id)
+
+            # Căn giữa lời nói nếu audio sau khi tăng tốc ngắn hơn planned_window
+            raw_dur = float(u_plan.get("audioDuration") or get_audio_duration_ffprobe(raw_audio))
+            eff_speech = raw_dur / tempo if tempo > 1e-6 else raw_dur
+            pad_left = max(0.0, (planned_window - eff_speech) / 2.0) if eff_speech < planned_window else 0.0
+
+            aligned_seg_audio = temp_dir / f"seg_{s_id}_aligned.wav"
+            align_and_pad_audio_segment(
+                input_audio_path=raw_audio,
+                target_duration=planned_window,
+                output_audio_path=aligned_seg_audio,
+                speed_factor=tempo,
+                pad_left=pad_left,
             )
 
-            # Insert silence if there is an empty gap before actual_start
-            if actual_start > current_time + 0.005:
-                silence_dur = actual_start - current_time
-                silence_file = temp_dir / f"gap_{idx}_silence.wav"
+            # Đảm bảo không bao giờ đè lên audio phía trước
+            if planned_start < current_time:
+                planned_start = current_time
+                planned_end = planned_start + planned_window
+
+            # Chèn khoảng lặng trước planned_start nếu có
+            if planned_start > current_time + 0.005:
+                silence_dur = planned_start - current_time
+                silence_file = temp_dir / f"gap_{s_id}_silence.wav"
                 create_silent_audio(silence_file, silence_dur)
                 concat_list.append(silence_file)
-                current_time = actual_start
+                current_time = planned_start
 
             concat_list.append(aligned_seg_audio)
-            current_time = actual_end
+            current_time = planned_end
 
         # Pad remaining silence at the end of video if needed
         if total_duration > current_time + 0.05:
@@ -894,17 +925,20 @@ def render_dubbed_video(
     video_path: Path | str,
     dubbed_audio_path: Path | str,
     output_video_path: Path | str,
-    bg_volume: float = 0.25,
+    bg_volume: float = 0.2,
+    dub_volume: float = 3.0,
     pitch_down_pct: float = 5.0,
     on_progress: Optional[Callable[[float, str], None]] = None,
 ) -> Path:
     """
     Render final dubbed video by merging video with dubbed audio track:
     - Original background audio:
-        * Volume reduced to bg_volume (default 0.25)
+        * Volume reduced to bg_volume (default 0.2)
         * Periodic mute: every 0.9s mute for 0.1s (cycle: 1.0s)
         * Pitch down by pitch_down_pct (default 5% -> pitch 0.95)
-    - Dubbed audio mixed in at full volume via amix.
+    - Dubbed audio:
+        * Volume amplified to dub_volume (default 3.0)
+    - Audio track mixed with amix (normalize=0).
     - Video stream copied without re-encoding (-c:v copy) for maximum speed.
     """
     in_v = Path(video_path).resolve()
@@ -918,7 +952,7 @@ def render_dubbed_video(
     if not in_a.exists():
         raise FileNotFoundError(f"Dubbed audio file not found: {in_a}")
 
-    _log(f"Đang render video lồng tiếng ({out_v.name})...")
+    _log(f"Đang render video lồng tiếng ({out_v.name}) [Âm dubbing: {dub_volume:.1f}x, Âm gốc: {bg_volume:.2f}x]...")
     if on_progress:
         on_progress(5, f"Bắt đầu render video lồng tiếng: {out_v.name}...")
 
@@ -926,18 +960,21 @@ def render_dubbed_video(
     pitch_ratio = max(0.8, min(1.0, 1.0 - (pitch_down_pct / 100.0)))
     atempo_comp = 1.0 / pitch_ratio
 
-    # Periodic mute every 0.9s for 0.1s: if(lt(mod(t,1.0),0.9),0.25,0)
+    # Periodic mute every 0.9s for 0.1s: if(lt(mod(t,1.0),0.9),0.2,0)
     vol_expr = f"volume='if(lt(mod(t,1.0),0.9),{bg_volume:.3f},0)':eval=frame"
+    dub_vol_expr = f"volume={dub_volume:.3f}"
 
     # Try librubberband filter first, fallback to asetrate/atempo
     rubberband_filter = (
         f"[0:a]{vol_expr},rubberband=pitch={pitch_ratio:.4f}[a_bg];"
-        f"[a_bg][1:a]amix=inputs=2:duration=first:weights=1 1[a_out]"
+        f"[1:a]{dub_vol_expr}[a_dub];"
+        f"[a_bg][a_dub]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a_out]"
     )
 
     fallback_filter = (
         f"[0:a]{vol_expr},asetrate=44100*{pitch_ratio:.4f},atempo={atempo_comp:.4f},aresample=44100[a_bg];"
-        f"[a_bg][1:a]amix=inputs=2:duration=first:weights=1 1[a_out]"
+        f"[1:a]{dub_vol_expr}[a_dub];"
+        f"[a_bg][a_dub]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a_out]"
     )
 
     cmd_rubberband = [
