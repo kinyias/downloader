@@ -304,7 +304,8 @@ def cli_download_series(
     translate_model: Optional[str] = None,
     dubbing: bool = True,
     tts_voice: str = "Ngọc Huyền",
-    tts_batch_size: int = 30,
+    tts_batch_size: int = 64,
+    video_speed: float = 0.9,
 ) -> Optional[Path]:
     """
     Download selected episodes of a series with concurrent multi-threading
@@ -495,6 +496,7 @@ def cli_download_series(
             dubbing=dubbing,
             tts_voice=tts_voice,
             tts_batch_size=tts_batch_size,
+            video_speed=video_speed,
         )
 
         if merged_file and clean_parts:
@@ -536,7 +538,8 @@ def cli_merge_folder(
     translate_model: Optional[str] = None,
     dubbing: bool = True,
     tts_voice: str = "Ngọc Huyền",
-    tts_batch_size: int = 30,
+    tts_batch_size: int = 64,
+    video_speed: float = 0.9,
 ) -> Optional[Path]:
     """
     Merge all video files in a folder into one continuous video with live CLI progress bar,
@@ -619,7 +622,8 @@ def cli_merge_folder(
         "translate_model": translate_model,
         "dubbing": bool(dubbing),
         "tts_voice": str(tts_voice or "Ngọc Huyền"),
-        "tts_batch_size": int(tts_batch_size or 30),
+        "tts_batch_size": int(tts_batch_size or 64),
+        "video_speed": float(video_speed or 0.9),
     }
 
     merge_pbar = tqdm(
@@ -974,7 +978,8 @@ def main():
     p_dl.add_argument("--model", "--translate-model", dest="translate_model", type=str, default="", help="Model dịch thuật (vd: gemini-lite, deepseek-chat)")
     p_dl.add_argument("--no-dubbing", action="store_true", help="Không tự động lồng tiếng video với VieNeu-TTS")
     p_dl.add_argument("--voice", "--tts-voice", dest="tts_voice", type=str, default="Ngọc Huyền", help="Giọng đọc VieNeu-TTS (mặc định: Ngọc Huyền)")
-    p_dl.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=30, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 30)")
+    p_dl.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=64, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 64)")
+    p_dl.add_argument("--speed", "--video-speed", dest="video_speed", type=float, default=0.9, help="Tốc độ phát của video sau khi ghép (mặc định: 0.9x)")
 
     # Command: search
     p_sc = subparsers.add_parser("search", help="Tìm kiếm phim theo từ khóa")
@@ -999,7 +1004,8 @@ def main():
     p_mg.add_argument("--model", "--translate-model", dest="translate_model", type=str, default="", help="Model dịch thuật (vd: gemini-lite, deepseek-chat)")
     p_mg.add_argument("--no-dubbing", action="store_true", help="Không tự động lồng tiếng video với VieNeu-TTS")
     p_mg.add_argument("--voice", "--tts-voice", dest="tts_voice", type=str, default="Ngọc Huyền", help="Giọng đọc VieNeu-TTS (mặc định: Ngọc Huyền)")
-    p_mg.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=30, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 30)")
+    p_mg.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=64, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 64)")
+    p_mg.add_argument("--speed", "--video-speed", dest="video_speed", type=float, default=0.9, help="Tốc độ phát của video sau khi ghép (mặc định: 0.9x)")
 
     # Command: check-gpu
     subparsers.add_parser("check-gpu", help="Kiểm tra chi tiết GPU & bộ mã hóa NVIDIA NVENC")
@@ -1049,6 +1055,7 @@ def main():
             dubbing=not args.no_dubbing,
             tts_voice=args.tts_voice,
             tts_batch_size=args.tts_batch_size,
+            video_speed=getattr(args, "video_speed", 0.9),
         )
 
     elif args.command == "merge":
@@ -1071,6 +1078,7 @@ def main():
             dubbing=not args.no_dubbing,
             tts_voice=args.tts_voice,
             tts_batch_size=args.tts_batch_size,
+            video_speed=getattr(args, "video_speed", 0.9),
         )
 
     elif args.command == "register":

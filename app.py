@@ -726,6 +726,10 @@ def api_merge_start():
         "source_lang": str(payload.get("source_lang", "auto")).strip(),
         "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
         "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
+        "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
+        "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.2),
+        "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.3),
+        "video_speed": float(payload.get("video_speed") or payload.get("speed") or 0.9),
     }
 
     try:
@@ -774,6 +778,10 @@ def api_merge_start_online():
         "source_lang": str(payload.get("source_lang", "auto")).strip(),
         "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
         "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
+        "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
+        "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.2),
+        "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.3),
+        "video_speed": float(payload.get("video_speed") or payload.get("speed") or 0.9),
     }
 
     try:

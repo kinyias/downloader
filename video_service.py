@@ -722,6 +722,7 @@ def determine_target_fps(probed_infos: List[Dict[str, Any]], user_fps: str = "or
     if not valid_fps:
         return None
     if max(valid_fps) - min(valid_fps) > 0.5:
+        from collections import Counter
         most_common = Counter([round(f, 1) for f in valid_fps]).most_common(1)[0][0]
         return most_common
     return None
@@ -737,8 +738,9 @@ def generate_batch_filter_script(
     audio_filter_str: str,
     cut_end_seconds: float = 0.0,
     mirror: bool = False,
+    video_speed: float = 0.9,
 ) -> str:
-    """Generate FFmpeg filter_complex script content with ultra-fast size/SAR normalization and frame-accurate sync."""
+    """Generate FFmpeg filter_complex script content with ultra-fast size/SAR normalization, speed scaling (default 0.9x), and frame-accurate sync."""
     filter_parts = []
     concat_inputs = []
 
@@ -746,6 +748,7 @@ def generate_batch_filter_script(
 
     for idx, (f, info) in enumerate(zip(batch_files, batch_infos)):
         dur = info["effective_duration"]
+        clip_dur = info.get("clip_duration", dur)
         has_audio = info.get("has_audio", False)
         in_w = int(info.get("width") or 0)
         in_h = int(info.get("height") or 0)
@@ -754,8 +757,14 @@ def generate_batch_filter_script(
         # Video stream: only scale/pad if dimensions actually differ to eliminate CPU bottlenecks!
         v_filters = []
         if cut_end_seconds > 0:
-            v_filters.append(f"trim=start=0:duration={dur:.3f}")
-        v_filters.append("setpts=PTS-STARTPTS")
+            v_filters.append(f"trim=start=0:duration={clip_dur:.3f}")
+
+        # Tốc độ phát video (mặc định 0.9x -> video chậm lại 10%)
+        if abs(video_speed - 1.0) > 0.005 and video_speed > 0:
+            v_pts = 1.0 / video_speed
+            v_filters.append(f"setpts=(PTS-STARTPTS)*{v_pts:.6f}")
+        else:
+            v_filters.append("setpts=PTS-STARTPTS")
 
         if in_w != target_w or in_h != target_h:
             v_filters.append(
@@ -778,12 +787,13 @@ def generate_batch_filter_script(
         v_filter_combined = ",".join(v_filters)
         filter_parts.append(f"[{idx}:v]{v_filter_combined}[v{idx}]")
 
-        # Audio stream: setpts, resample with async sync, format stereo 44100Hz
+        # Audio stream: setpts, atempo (đồng bộ với video_speed 0.9x), resample with async sync, format stereo 44100Hz
+        tempo_filter = f",atempo={video_speed:.4f}" if (abs(video_speed - 1.0) > 0.005 and video_speed > 0) else ""
         if has_audio:
             if cut_end_seconds > 0:
-                a_filter = f"atrim=start=0:duration={dur:.3f},asetpts=PTS-STARTPTS,aresample=44100:async=1000:first_pts=0,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo{audio_filter_str}"
+                a_filter = f"atrim=start=0:duration={clip_dur:.3f},asetpts=PTS-STARTPTS{tempo_filter},aresample=44100:async=1000:first_pts=0,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo{audio_filter_str}"
             else:
-                a_filter = f"asetpts=PTS-STARTPTS,aresample=44100:async=1000:first_pts=0,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo{audio_filter_str}"
+                a_filter = f"asetpts=PTS-STARTPTS{tempo_filter},aresample=44100:async=1000:first_pts=0,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo{audio_filter_str}"
             filter_parts.append(f"[{idx}:a]{a_filter}[a{idx}]")
         else:
             filter_parts.append(f"aevalsrc=0:d={dur:.3f}:s=44100:c=stereo[a{idx}]")
@@ -876,10 +886,11 @@ def run_single_pass_encode(
     total_effective_dur: float,
     cut_end_seconds: float = 0.0,
     mirror: bool = False,
+    video_speed: float = 0.9,
 ) -> None:
     """Encode all clips in a single direct pass using -filter_complex_script for 100% stability & high quality."""
     script_content = generate_batch_filter_script(
-        batch_files, batch_infos, target_w, target_h, target_fps, color_filter_str, audio_filter_str, cut_end_seconds, mirror=mirror
+        batch_files, batch_infos, target_w, target_h, target_fps, color_filter_str, audio_filter_str, cut_end_seconds, mirror=mirror, video_speed=video_speed
     )
     script_file = temp_dir / f"filter_{uuid.uuid4().hex[:8]}.txt"
     with open(script_file, "w", encoding="utf-8") as sf:
@@ -1094,6 +1105,11 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         elif audio_effect_key in AUDIO_PRESETS and AUDIO_PRESETS[audio_effect_key]:
             audio_filter_str = f",{AUDIO_PRESETS[audio_effect_key]}"
 
+        # Tốc độ video ghép từ các tập (mặc định chậm đi 0.9x theo yêu cầu)
+        video_speed = float(options.get("video_speed") or options.get("speed") or 0.9)
+        if video_speed <= 0:
+            video_speed = 0.9
+
         # 1. Probe all input files to obtain exact durations and stream info
         probed_infos = []
         corrupt_files = []
@@ -1113,9 +1129,11 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                 corrupt_files.append(f"• Tập {i+1} ({fname}): {err_reason}")
 
             if cut_end_seconds > 0:
-                effective_dur = max(0.5, dur - cut_end_seconds) if dur > cut_end_seconds else max(0.2, dur * 0.5)
+                clip_dur = max(0.5, dur - cut_end_seconds) if dur > cut_end_seconds else max(0.2, dur * 0.5)
             else:
-                effective_dur = max(0.2, dur)
+                clip_dur = max(0.2, dur)
+            effective_dur = clip_dur / video_speed if video_speed > 0 else clip_dur
+            info["clip_duration"] = clip_dur
             info["effective_duration"] = effective_dur
             probed_infos.append(info)
             total_effective_duration += effective_dur
@@ -1136,6 +1154,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             total_duration=total_effective_duration,
             total_duration_str=format_duration(total_effective_duration),
             file_count=len(valid_files),
+            video_speed=video_speed,
         )
 
         ffmpeg_bin = get_ffmpeg_binary()
@@ -1152,8 +1171,9 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             probed_infos=probed_infos,
         )
 
+        speed_label = f" (Tốc độ {video_speed:.2f}x)" if abs(video_speed - 1.0) > 0.005 else ""
         update_task(
-            message=f"Đang ghép 1 lần trực tiếp ({len(valid_files)} video) với {display_label} ({target_w}x{target_h})...",
+            message=f"Đang ghép 1 lần trực tiếp ({len(valid_files)} video){speed_label} với {display_label} ({target_w}x{target_h})...",
             gpu_encoder=display_label,
         )
 
@@ -1180,6 +1200,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                 total_effective_duration,
                 cut_end_seconds=cut_end_seconds,
                 mirror=mirror,
+                video_speed=video_speed,
             )
         except Exception as encode_err:
             err_text = str(encode_err)
@@ -1214,6 +1235,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                     total_effective_duration,
                     cut_end_seconds=cut_end_seconds,
                     mirror=mirror,
+                    video_speed=video_speed,
                 )
             else:
                 raise encode_err
@@ -1403,13 +1425,13 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     import vieneu_tts
 
                                     tts_voice = options.get("tts_voice") or options.get("voice") or "Ngọc Huyền"
-                                    tts_batch_size = int(options.get("tts_batch_size") or options.get("batch_size") or 30)
-                                    tts_engine = vieneu_tts.VieNeuTTS(voice=tts_voice)
+                                    tts_batch_size = int(options.get("tts_batch_size") or options.get("batch_size") or 64)
+                                    tts_engine = vieneu_tts.VieNeuTTS(voice=tts_voice, max_batch_size=max(64, tts_batch_size))
 
                                     video_meta = probe_video_info(output_path)
                                     video_duration = video_meta.get("duration") or 0.0
 
-                                    # Chuẩn bị thông tin LLM để dịch lại / rút gọn câu nếu sau khi align (tận dụng khoảng trống, tăng tốc 1.2x) vẫn thiếu > 0.3s
+                                    # Nếu audio bị thừa thời lượng, VieNeu-TTS sẽ tự động gen lại audio mà không dịch rút gọn lại văn bản
                                     chat_url = ""
                                     headers = {"Content-Type": "application/json"}
                                     if custom_endpoint:

@@ -9,11 +9,10 @@ Provides:
       between utterances, while strictly never colliding with previous or next audio clips.
     * Speed up audio up to 1.2x (via ffmpeg atempo) if audio exceeds subtitle duration.
     * Left-aligned speech with zero leading silence (starts immediately when subtitle appears, no lag).
-- Strict deficit verification (> 0.3s):
-    * Only if after utilizing all available space without touching adjacent audio and speeding up 1.2x,
-      the space is STILL lacking by > 0.3s for the audio:
-        - Attempt 1: Regenerate audio once with VieNeu-TTS
-        - Attempt 2: Re-translate / condense text to be strictly shorter via LLM, then regenerate
+- Automatic timing recovery:
+    * If speech exceeds subtitle duration ("audio bị thừa"):
+        - Regenerates audio with VieNeu-TTS (retries with TTS to find best fit without altering text)
+        - No re-translation or text condensation via LLM, preserving the original translation intact
 - Full dubbing master track builder matching video timeline exactly
 - Video dubbing renderer with background audio modification:
     * Original audio volume reduced to 0.2
@@ -200,10 +199,17 @@ class VieNeuTTS:
     """
     _instance = None
 
-    def __init__(self, mode: str = "v3turbo", voice: str = DEFAULT_VOICE, backend: Optional[str] = None):
+    def __init__(
+        self,
+        mode: str = "v3turbo",
+        voice: str = DEFAULT_VOICE,
+        backend: Optional[str] = None,
+        max_batch_size: int = 64,
+    ):
         self.mode = mode
         self.voice = voice or DEFAULT_VOICE
         self.backend = backend
+        self.max_batch_size = max(1, int(max_batch_size or 64))
         self._vieneu_client = None
         self._is_available = False
         self._init_engine()
@@ -212,13 +218,23 @@ class VieNeuTTS:
         """Attempt to initialize Vieneu SDK client."""
         try:
             from vieneu import Vieneu  # type: ignore
-            _log(f"Đang nạp mô hình VieNeu-TTS (mode='{self.mode}', backend={self.backend or 'auto'})...")
+            _log(
+                f"Đang nạp mô hình VieNeu-TTS (mode='{self.mode}', backend={self.backend or 'auto'}, "
+                f"max_batch_size={self.max_batch_size})..."
+            )
             kwargs = {"mode": self.mode}
             if self.backend:
                 kwargs["backend"] = self.backend
-            self._vieneu_client = Vieneu(**kwargs)
+            if self.max_batch_size:
+                kwargs["max_batch_size"] = self.max_batch_size
+            try:
+                self._vieneu_client = Vieneu(**kwargs)
+            except TypeError:
+                # Fallback nếu phiên bản SDK cũ không hỗ trợ tham số max_batch_size
+                kwargs.pop("max_batch_size", None)
+                self._vieneu_client = Vieneu(**kwargs)
             self._is_available = True
-            _log(f"✅ Đã khởi tạo VieNeu-TTS thành công (Giọng mặc định: '{self.voice}')!")
+            _log(f"✅ Đã khởi tạo VieNeu-TTS thành công (Giọng mặc định: '{self.voice}', max_batch_size={self.max_batch_size})!")
         except ImportError:
             self._vieneu_client = None
             self._is_available = False
@@ -232,7 +248,7 @@ class VieNeuTTS:
     def is_available(self) -> bool:
         return self._is_available and self._vieneu_client is not None
 
-    def infer_batch(self, texts: List[str], voice: Optional[str] = None, batch_size: int = 30) -> List[Any]:
+    def infer_batch(self, texts: List[str], voice: Optional[str] = None, batch_size: int = 64) -> List[Any]:
         """
         Directly invoke Vieneu infer_batch to leverage GPU parallel forward passes.
         Returns list of audio waveforms (numpy arrays).
@@ -240,7 +256,7 @@ class VieNeuTTS:
         if not self.is_available:
             raise RuntimeError("VieNeu-TTS client is not initialized or unavailable.")
         v = voice or self.voice or DEFAULT_VOICE
-        bs = max(1, int(batch_size or 30))
+        bs = max(1, int(batch_size or 64))
         return self._vieneu_client.infer_batch(
             texts=texts,
             voice=v,
@@ -283,7 +299,7 @@ class VieNeuTTS:
         self,
         items: List[Tuple[str, Path | str]],
         voice: Optional[str] = None,
-        batch_size: int = 30,
+        batch_size: int = 64,
         speed: float = 1.0,
         on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> List[Path]:
@@ -291,7 +307,7 @@ class VieNeuTTS:
         Synthesize speech from multiple texts in batches using Vieneu SDK's `infer_batch`
         to maximize GPU utilization and throughput.
 
-        - Divides items into batches of `batch_size` (default: 30 segments).
+        - Divides items into batches of `batch_size` (default: 64 segments).
         - Runs neural forward passes simultaneously across segments on GPU.
         - Automatically writes output audio files and applies speed adjustment if needed.
         - Gracefully falls back to sequential synthesize if infer_batch errors.
@@ -302,7 +318,7 @@ class VieNeuTTS:
         v = voice or self.voice or DEFAULT_VOICE
         results: List[Path] = []
         total_items = len(items)
-        bs = max(1, int(batch_size or 30))
+        bs = max(1, int(batch_size or 64))
 
         # Check if batch inference is supported by engine
         has_infer_batch = self.is_available and hasattr(self._vieneu_client, "infer_batch")
@@ -504,7 +520,7 @@ def process_segment_dubbing_with_retry(
     Xử lý lồng tiếng cho một phân đoạn phụ đề sử dụng node_helper.verify_dubbing_fit & compute_timing_plan:
     1. Kiểm tra audio đã tạo sẵn hoặc tổng hợp với VieNeu-TTS.
     2. Sử dụng node_helper.verify_dubbing_fit để kiểm tra xem audio có vừa khung (sau khi borrow và tempo 1.2x) không.
-    3. Nếu không vừa (infeasible): tạo lại lần 1, nếu vẫn không vừa thì gọi LLM rút gọn câu.
+    3. Nếu không vừa (audio bị thừa / infeasible): chỉ gen lại audio với VieNeu-TTS (thử lại các lần), không dịch rút gọn câu qua LLM.
     4. Căn chỉnh audio theo plannedStart, plannedEnd, audioTempo từ timing_plan của node_helper.
     """
     import node_helper
@@ -580,53 +596,43 @@ def process_segment_dubbing_with_retry(
     fit_res = _eval_fit(unit_item)
     is_infeasible = s_id in (fit_res.get("infeasibleUnitIds") or [])
 
+    # Bước 3: Nếu audio bị thừa so với khung thời gian (infeasible > tolerance):
+    # Chỉ gen lại audio với VieNeu-TTS, KHÔNG dịch rút gọn câu
     if is_infeasible:
-        msg1 = (
-            f"[Dubbing Segment #{s_id}] Audio ({audio_dur:.2f}s) sau khi tăng tốc tối đa {max_speedup:.1f}x "
-            f"và mượn khoảng trống vẫn thiếu > {tolerance:.1f}s theo node_helper. Đang tạo lại audio lần 1..."
-        )
-        _log(msg1)
-        if on_status:
-            on_status(msg1)
+        best_audio_path = seg_raw_path
+        best_dur = audio_dur
+        max_retries = 2
 
-        seg_retry1_path = temp_dir / f"seg_{s_id}_retry1.wav"
-        tts.synthesize(text, seg_retry1_path, voice=voice)
-        audio_dur1 = get_audio_duration_ffprobe(seg_retry1_path)
-
-        if audio_dur1 > 0:
-            unit_item["audioDuration"] = audio_dur1
-            recheck = _eval_fit(unit_item)
-            if s_id not in (recheck.get("infeasibleUnitIds") or []) or audio_dur1 < audio_dur:
-                seg_raw_path = seg_retry1_path
-                audio_dur = audio_dur1
-                fit_res = recheck
-                is_infeasible = s_id in (recheck.get("infeasibleUnitIds") or [])
-
-        # Attempt 2: Rút gọn câu qua LLM
-        if is_infeasible and chat_url and headers:
-            u_info = _extract_unit(fit_res)
-            planned_win = float(u_info.get("plannedWindow") or target_dur)
-            msg2 = (
-                f"[Dubbing Segment #{s_id}] Audio tạo lại vẫn thiếu > {tolerance:.1f}s. "
-                f"Đang rút gọn câu qua LLM..."
+        for attempt in range(1, max_retries + 1):
+            msg = (
+                f"[Dubbing Segment #{s_id}] Audio ({best_dur:.2f}s) bị thừa thời lượng > {tolerance:.1f}s. "
+                f"Đang gen lại audio lần {attempt}/{max_retries} (giữ nguyên bản dịch, không dịch rút gọn)..."
             )
-            _log(msg2)
+            _log(msg)
             if on_status:
-                on_status(msg2)
+                on_status(msg)
 
-            condensed = condense_segment_via_llm(segment, planned_win, chat_url, headers, model)
-            if condensed and condensed != text:
-                _log(f"    • Segment #{s_id} Bản rút gọn: '{condensed}' (thay cho '{text}')")
-                segment["spokenText"] = condensed
-                seg_condensed_path = temp_dir / f"seg_{s_id}_condensed.wav"
-                tts.synthesize(condensed, seg_condensed_path, voice=voice)
-                audio_dur2 = get_audio_duration_ffprobe(seg_condensed_path)
-                if audio_dur2 > 0:
-                    seg_raw_path = seg_condensed_path
-                    audio_dur = audio_dur2
-                    unit_item["spokenText"] = condensed
-                    unit_item["audioDuration"] = audio_dur2
-                    fit_res = _eval_fit(unit_item)
+            seg_retry_path = temp_dir / f"seg_{s_id}_retry{attempt}.wav"
+            tts.synthesize(text, seg_retry_path, voice=voice)
+            audio_dur_retry = get_audio_duration_ffprobe(seg_retry_path)
+
+            if audio_dur_retry > 0:
+                unit_item["audioDuration"] = audio_dur_retry
+                recheck = _eval_fit(unit_item)
+                is_now_feasible = s_id not in (recheck.get("infeasibleUnitIds") or [])
+
+                if is_now_feasible or audio_dur_retry < best_dur:
+                    best_audio_path = seg_retry_path
+                    best_dur = audio_dur_retry
+                    fit_res = recheck
+                    is_infeasible = not is_now_feasible
+
+                if is_now_feasible:
+                    _log(f"[Dubbing Segment #{s_id}] ✅ Gen lại lần {attempt} thành công ({audio_dur_retry:.2f}s) đã vừa vặn khung thời gian!")
+                    break
+
+        seg_raw_path = best_audio_path
+        audio_dur = best_dur
 
     u_final = _extract_unit(fit_res)
     p_start = float(u_final.get("plannedStart", start_t))
@@ -640,7 +646,17 @@ def process_segment_dubbing_with_retry(
         actual_end = start_t + eff_speech
     else:
         actual_start = max(p_start, p_end - eff_speech)
-        actual_end = min(p_end, actual_start + eff_speech)
+        actual_end = actual_start + eff_speech
+        if next_seg_start is not None and actual_end > next_seg_start - min_gap:
+            # Nếu chạm tới segment tiếp theo, tăng nhẹ tempo (tối đa 1.35x) để đọc kịp trọn câu mà không bị cắt tiếng
+            avail_dur = max(0.05, next_seg_start - min_gap - actual_start)
+            needed_tempo = audio_dur / avail_dur
+            if needed_tempo <= 1.35:
+                tempo = max(tempo, needed_tempo)
+                eff_speech = audio_dur / tempo
+                actual_end = actual_start + eff_speech
+            else:
+                actual_end = next_seg_start - min_gap
 
     if prev_audio_end > 0.0 and actual_start < prev_audio_end + min_gap:
         actual_start = prev_audio_end + min_gap
@@ -663,7 +679,7 @@ def build_full_dubbed_audio(
     output_audio_path: Path | str,
     tts: VieNeuTTS,
     voice: str = DEFAULT_VOICE,
-    batch_size: int = 30,
+    batch_size: int = 64,
     chat_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
     model: str = "gemini-lite",
@@ -679,9 +695,8 @@ def build_full_dubbed_audio(
        - Mượn khoảng trống 2 bên (không chạm câu trước/sau).
        - Tăng tốc tối đa 1.2x.
        - Cho phép dung sai 0.3s.
-    3. Nếu có phân đoạn infeasible (thiếu > 0.3s):
-       - Attempt 1: Tạo lại audio với VieNeu-TTS.
-       - Attempt 2: Rút gọn câu qua LLM và tạo lại audio.
+    3. Nếu có phân đoạn infeasible (audio bị thừa > 0.3s):
+       - Chỉ gen lại audio với VieNeu-TTS (thử lại các lần), KHÔNG dịch rút gọn câu qua LLM.
     4. Tính toán final timing_plan với node_helper.compute_timing_plan và lắp ráp audio timeline.
     """
     import node_helper
@@ -692,7 +707,7 @@ def build_full_dubbed_audio(
     ffmpeg = get_ffmpeg_bin()
 
     total_segs = len(segments)
-    bs = max(1, int(batch_size or 30))
+    bs = max(1, int(batch_size or 64))
     _log(f"Bắt đầu lồng tiếng {total_segs} phân đoạn với VieNeu-TTS (infer_batch GPU, batch_size={bs}, Giọng: '{voice}')...")
 
     # Sort segments theo thời gian bắt đầu
@@ -757,55 +772,43 @@ def build_full_dubbed_audio(
         infeasible_ids = list(fit_res.get("infeasibleUnitIds") or [])
         plan = fit_res.get("plan") or {}
 
-        # Nếu có phân đoạn thiếu > 0.3s
+        # Nếu audio bị thừa so với khung thời gian (infeasible > tolerance):
+        # Chỉ gen lại audio với VieNeu-TTS, KHÔNG dịch rút gọn lại
         if infeasible_ids:
-            msg = f"Phát hiện {len(infeasible_ids)} phân đoạn thiếu > {tolerance:.1f}s theo verify_dubbing_fit: {infeasible_ids}"
+            msg = f"Phát hiện {len(infeasible_ids)} phân đoạn audio bị thừa > {tolerance:.1f}s theo verify_dubbing_fit. Đang tiến hành gen lại audio..."
             _log(msg)
             if on_progress:
                 on_progress(63, msg)
 
-            # Attempt 1: Thử tạo lại audio 1 lần nữa với VieNeu-TTS
-            for s_id in infeasible_ids:
-                seg = next((s for s in sorted_segs if str(s.get("id", s.get("unitId"))) == s_id), None)
-                if not seg:
-                    continue
-                text = str(seg.get("spokenText") or seg.get("subtitleText") or seg.get("translation") or "").strip()
-                seg_retry1_path = temp_dir / f"seg_{s_id}_retry1.wav"
-                _log(f"[Dubbing Segment #{s_id}] Đang tạo lại audio lần 1...")
-                tts.synthesize(text, seg_retry1_path, voice=voice)
-                new_dur = get_audio_duration_ffprobe(seg_retry1_path)
-                if new_dur > 0:
-                    seg["audioDuration"] = new_dur
-                    raw_audio_map[s_id] = seg_retry1_path
+            max_retries = 2
+            for attempt in range(1, max_retries + 1):
+                if not infeasible_ids:
+                    break
 
-            # Re-check bằng node_helper.verify_dubbing_fit
-            recheck = node_helper.verify_dubbing_fit(
-                sorted_segs,
-                {"totalDuration": total_duration, "policy": dubbing_policy}
-            )
-            still_infeasible = list(recheck.get("infeasibleUnitIds") or [])
-            plan = recheck.get("plan") or {}
-
-            # Attempt 2: Nếu vẫn còn phân đoạn thiếu > 0.3s -> Rút gọn câu qua LLM
-            if still_infeasible and chat_url and headers:
-                units_dict = {str(u["unitId"]): u for u in plan.get("units", [])}
-                for s_id in still_infeasible:
+                _log(f"--> [Dubbing Retry {attempt}/{max_retries}] Đang gen lại audio cho {len(infeasible_ids)} phân đoạn bị thừa (giữ nguyên văn bản, không dịch rút gọn)...")
+                for s_id in list(infeasible_ids):
                     seg = next((s for s in sorted_segs if str(s.get("id", s.get("unitId"))) == s_id), None)
                     if not seg:
                         continue
-                    u_info = units_dict.get(s_id) or {}
-                    target_win = float(u_info.get("plannedWindow") or (float(seg.get("endTime")) - float(seg.get("startTime"))))
-                    _log(f"[Dubbing Segment #{s_id}] Vẫn thiếu > {tolerance:.1f}s sau lần 1. Đang gọi LLM rút gọn câu...")
-                    condensed = condense_segment_via_llm(seg, target_win, chat_url, headers, model)
-                    if condensed and condensed != seg.get("spokenText"):
-                        _log(f"    • Segment #{s_id} Bản rút gọn: '{condensed}'")
-                        seg["spokenText"] = condensed
-                        seg_condensed_path = temp_dir / f"seg_{s_id}_condensed.wav"
-                        tts.synthesize(condensed, seg_condensed_path, voice=voice)
-                        new_dur = get_audio_duration_ffprobe(seg_condensed_path)
-                        if new_dur > 0:
-                            seg["audioDuration"] = new_dur
-                            raw_audio_map[s_id] = seg_condensed_path
+                    text = str(seg.get("spokenText") or seg.get("subtitleText") or seg.get("translation") or "").strip()
+                    seg_retry_path = temp_dir / f"seg_{s_id}_retry{attempt}.wav"
+                    tts.synthesize(text, seg_retry_path, voice=voice)
+                    new_dur = get_audio_duration_ffprobe(seg_retry_path)
+                    cur_dur = float(seg.get("audioDuration", 0.0))
+                    if new_dur > 0 and (cur_dur <= 0 or new_dur < cur_dur):
+                        seg["audioDuration"] = new_dur
+                        raw_audio_map[s_id] = seg_retry_path
+
+                # Re-check bằng node_helper.verify_dubbing_fit
+                recheck = node_helper.verify_dubbing_fit(
+                    sorted_segs,
+                    {"totalDuration": total_duration, "policy": dubbing_policy}
+                )
+                infeasible_ids = list(recheck.get("infeasibleUnitIds") or [])
+                plan = recheck.get("plan") or {}
+                if not infeasible_ids:
+                    _log(f"✅ Sau lần gen lại thứ {attempt}, toàn bộ phân đoạn audio đã vừa vặn khung thời gian!")
+                    break
 
         # Chốt timing plan cuối cùng bằng node_helper.compute_timing_plan
         final_plan = node_helper.compute_timing_plan(
@@ -843,7 +846,22 @@ def build_full_dubbed_audio(
                 speech_end = orig_start + eff_speech
             else:
                 speech_start = max(planned_start, planned_end - eff_speech)
-                speech_end = min(planned_end, speech_start + eff_speech)
+                speech_end = speech_start + eff_speech
+
+                # Đảm bảo không đè lên câu kế tiếp
+                next_seg_start = float(sorted_segs[idx + 1].get("startTime", 0.0)) if idx + 1 < total_segs else total_duration
+                max_allowed_end = min(total_duration, next_seg_start - min_gap) if next_seg_start > speech_start else total_duration
+
+                if speech_end > max_allowed_end and max_allowed_end > speech_start:
+                    # Nếu vượt quá khoảng trống tới câu sau, tăng nhẹ tempo (tối đa 1.35x) để đọc kịp trọn câu mà không bị cắt tiếng
+                    avail_win = max_allowed_end - speech_start
+                    needed_tempo = raw_dur / max(0.05, avail_win)
+                    if needed_tempo <= 1.35:
+                        tempo = max(tempo, needed_tempo)
+                        eff_speech = raw_dur / tempo
+                        speech_end = speech_start + eff_speech
+                    else:
+                        speech_end = max_allowed_end
 
             # 2. Đảm bảo không bao giờ đè lên audio phân đoạn trước
             if speech_start < current_time:
