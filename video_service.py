@@ -1495,20 +1495,33 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     video_meta = probe_video_info(output_path)
                                     video_duration = video_meta.get("duration") or 0.0
 
-                                    chat_url = ""
-                                    headers = {"Content-Type": "application/json"}
-                                    if custom_endpoint:
-                                        ep = custom_endpoint.rstrip("/")
-                                        chat_url = f"{ep}/chat/completions" if not ep.endswith("/chat/completions") else ep
-                                    elif os.getenv("CUSTOM_API_ENDPOINT"):
-                                        ep = os.getenv("CUSTOM_API_ENDPOINT").rstrip("/")
+                                    from config import DEFAULT_SETTINGS
+                                    resolved_ep = (
+                                        (custom_endpoint or "").strip()
+                                        or os.getenv("CUSTOM_API_ENDPOINT")
+                                        or DEFAULT_SETTINGS.get("customApiEndpoint", "")
+                                    )
+                                    if resolved_ep:
+                                        ep = resolved_ep.rstrip("/")
                                         chat_url = f"{ep}/chat/completions" if not ep.endswith("/chat/completions") else ep
                                     else:
                                         chat_url = "https://api.deepseek.com/v1/chat/completions"
 
-                                    key = custom_api_key or os.getenv("CUSTOM_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
+                                    key = (
+                                        (custom_api_key or "").strip()
+                                        or os.getenv("CUSTOM_API_KEY")
+                                        or os.getenv("DEEPSEEK_API_KEY")
+                                        or DEFAULT_SETTINGS.get("customApiKey", "")
+                                    )
+                                    headers = {"Content-Type": "application/json"}
                                     if key and key != "dummy":
                                         headers["Authorization"] = f"Bearer {key}"
+
+                                    resolved_model = (
+                                        (translate_model or "").strip()
+                                        or os.getenv("CUSTOM_MODEL")
+                                        or DEFAULT_SETTINGS.get("customModel", "gemini-lite")
+                                    )
 
                                     dest_dubbed_audio = output_path.with_name(f"{output_path.stem}_dubbing.mp3")
 
@@ -1531,7 +1544,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                         batch_size=tts_batch_size,
                                         chat_url=chat_url,
                                         headers=headers,
-                                        model=translate_model or "gemini-lite",
+                                        model=resolved_model,
                                         max_speedup=float(options.get("max_speedup") or options.get("tts_speedup") or 1.35),
                                         tolerance=float(options.get("tolerance") or options.get("tts_tolerance") or 0.3),
                                         on_progress=_dub_progress_cb,

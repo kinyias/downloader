@@ -628,98 +628,42 @@ def run_condense_chunk(candidates: List[Dict[str, Any]],
                        model: str, 
                        deep: bool = False) -> Dict[str, str]:
     """
-    Perform condensation pass matching node_helper.js:
-    - Normal condense (deep=False): 70-85% length
-    - Deep condense (deep=True): up to 50% length for lines exceeding video frame
+    Perform condensation pass matching node_helper.py:
+    Delegates to node_helper.DeepSeekTranslator.condense_chunk.
     """
     if not candidates:
         return {}
     
-    n_lines = len(candidates)
-    if deep:
-        system_prompt = (
-            f"Bạn là biên tập LỜI ĐỌC lồng tiếng. Các dòng dưới đây ĐÃ rút gọn một lần mà vẫn quá dài so với khung hình, "
-            f"nên cần NÉN SÂU: viết lại BẢN ĐỌC từ BẢN ĐỦ, độ dài NẰM TRONG khoảng âm tiết cho phép của dòng đó "
-            f"(1 từ tiếng Việt = 1 âm tiết) — khoảng 50–70% BẢN ĐỦ, KHÔNG được ngắn hơn mức tối thiểu. "
-            f"BẮT BUỘC GIỮ: ý cốt lõi (ai làm gì), con số, tên riêng, phủ định và cách xưng hô. "
-            f"Được phép: bỏ mệnh đề phụ/chi tiết bổ trợ, bỏ ví von nếu buộc phải chọn, gộp ý bằng cách nói ngắn tự nhiên. "
-            f"KHÔNG thêm ý mới, KHÔNG đổi nghĩa, KHÔNG viết cụt lủn kiểu điện tín — vẫn là câu nói trọn vẹn, đủ dấu câu.\n"
-            f"Trả về ĐÚNG {n_lines} dòng, mỗi dòng 'ID|bản đọc'. KHÔNG markdown, KHÔNG giải thích."
-        )
-    else:
-        system_prompt = (
-            f"Bạn là biên tập LỜI ĐỌC lồng tiếng. Với mỗi dòng bên dưới, viết BẢN ĐỌC gọn hơn từ BẢN ĐỦ, "
-            f"độ dài NẰM TRONG khoảng âm tiết cho phép của dòng đó (1 từ tiếng Việt = 1 âm tiết) — "
-            f"tức khoảng 70–85% BẢN ĐỦ, KHÔNG được ngắn hơn mức tối thiểu. "
-            f"GIỮ NGUYÊN: ý chính, hành động, sắc thái/so sánh, con số, tên riêng, phủ định và cách xưng hô. "
-            f"Được phép: bỏ từ đưa đẩy/đệm, rút gọn cấu trúc, thay cụm dài bằng cách nói ngắn tự nhiên. "
-            f"KHÔNG thêm ý mới, KHÔNG đổi nghĩa, KHÔNG viết cụt lủn kiểu điện tín. Văn nói tự nhiên, đủ dấu câu.\n"
-            f"Trả về ĐÚNG {n_lines} dòng, mỗi dòng 'ID|bản đọc'. KHÔNG markdown, KHÔNG giải thích."
-        )
-
-    user_lines = []
+    api_key = (headers.get("Authorization") or "").replace("Bearer ", "").strip() if headers else ""
+    if not api_key or api_key == "dummy":
+        api_key = os.getenv("CUSTOM_API_KEY") or DEFAULT_SETTINGS.get("customApiKey", "")
+    if not chat_url:
+        ep = os.getenv("CUSTOM_API_ENDPOINT") or DEFAULT_SETTINGS.get("customApiEndpoint", "")
+        chat_url = f"{ep.rstrip('/')}/chat/completions" if ep else "https://api.deepseek.com/v1/chat/completions"
+    if not model:
+        model = os.getenv("CUSTOM_MODEL") or DEFAULT_SETTINGS.get("customModel", "gemini-lite")
+    
+    translator = node_helper.DeepSeekTranslator(api_key=api_key or "dummy")
+    formatted_cands = []
     for idx, c in enumerate(candidates):
-        seg = c["seg"]
-        full_trans = c["full"]
+        seg = c.get("seg") or {}
+        full_trans = c.get("full") or seg.get("translation") or seg.get("text", "")
         full_syl = count_vi_syllables(full_trans)
-        
         if deep:
-            budget_min = max(2, int(full_syl * 0.50))
-            budget_max = max(budget_min, min(full_syl - 1, seg.get("budgetSyl", full_syl)))
+            b_min = max(2, int(full_syl * 0.50))
+            b_max = max(b_min, min(full_syl - 1, seg.get("budgetSyl", full_syl)))
         else:
-            budget_min = max(2, int(full_syl * 0.70))
-            budget_max = max(budget_min, min(full_syl - 1, max(seg.get("budgetSyl", full_syl), int(full_syl * 0.85))))
-
-        range_str = f"{budget_min}–{budget_max}" if budget_min < budget_max else f"≤{budget_max}"
-        src_text = seg.get("text", "")
-        line_str = f"{idx + 1}|[{range_str} âm tiết] GỐC: {src_text} | BẢN ĐỦ: {full_trans}"
-        user_lines.append(line_str)
-
-    user_prompt = "\n".join(user_lines)
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.3,
-        "stream": False
-    }
-
-    try:
-        resp = requests.post(chat_url, headers=headers, json=payload, timeout=120)
-        content = ""
-        if resp.status_code == 200:
-            raw_text = resp.text.strip()
-            if raw_text.startswith("data:"):
-                for line in raw_text.splitlines():
-                    if line.startswith("data:") and "[DONE]" not in line:
-                        try:
-                            c_obj = json.loads(line[5:].strip())
-                            content += c_obj.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                        except Exception:
-                            pass
-            else:
-                resp_json = resp.json()
-                content = resp_json.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-
-        results = {}
-        for line in content.splitlines():
-            line = line.strip()
-            if "|" in line:
-                parts = line.split("|", 1)
-                try:
-                    line_num = int(parts[0].strip())
-                    if 1 <= line_num <= len(candidates):
-                        seg_id = str(candidates[line_num - 1]["seg"]["id"])
-                        results[seg_id] = parts[1].strip()
-                except Exception:
-                    pass
-        return results
-    except Exception as e:
-        _log(f"[Condense Error] Lỗi khi gọi LLM rút gọn (deep={deep}): {e}")
-        return {}
+            b_min = max(2, int(full_syl * 0.70))
+            b_max = max(b_min, min(full_syl - 1, max(seg.get("budgetSyl", full_syl), int(full_syl * 0.85))))
+        formatted_cands.append({
+            "id": str(c.get("id") or c.get("idx") or seg.get("id", idx + 1)),
+            "source": c.get("source") or seg.get("text", ""),
+            "full": full_trans,
+            "budget": b_max,
+            "budgetMin": b_min,
+            "seg": seg
+        })
+    return translator.condense_chunk(formatted_cands, {"model": model, "url": chat_url}, deep=deep)
 
 def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "vi",
                            source_lang: str = "auto", preset: str = "ai_tong_hop_thong_minh",
@@ -1066,70 +1010,12 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
                     _log(f"  [Retranslate Warning] Lỗi ở vòng {retry_round}: {retry_err}")
                     break
 
-            # Kiểm tra và thực hiện rút gọn lời đọc ngay sau mỗi batch hoàn thành
-            # if is_vietnamese:
-            #     pass1_candidates = []
-            #     for s in chunk:
-            #         s_id = str(s.get("id", ""))
-            #         budgeted_s = budgeted_segments_map.get(s_id, s)
-            #         full_trans = results_map.get(s_id) or s.get("translation") or s.get("text", "")
-            #         syl = count_vi_syllables(full_trans)
-            #         b_syl = budgeted_s.get("budgetSyl", 0)
-            #         if b_syl > 0 and syl > b_syl * 1.06:
-            #             pass1_candidates.append({"seg": budgeted_s, "full": full_trans, "idx": s_id})
-
-            #     if pass1_candidates:
-            #         _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
-            #         if job_id:
-            #             update_job(
-            #                 job_id,
-            #                 int(pct_so_far * 0.95),
-            #                 f"Batch {batch_num}/{total_batches}: Đang rút gọn lời đọc cho {len(pass1_candidates)} câu...",
-            #             )
-
-            #         p1_results = run_condense_chunk(pass1_candidates, chat_url, headers, model, deep=False)
-            #         for c in pass1_candidates:
-            #             c_id = str(c["seg"]["id"])
-            #             if c_id in p1_results and p1_results[c_id]:
-            #                 spoken_map[c_id] = p1_results[c_id]
-
-            #         # Pass 2: Rút gọn sâu (tối đa 50%) cho những câu trong batch vẫn còn vượt thời lượng hình
-            #         deep_candidates = []
-            #         for c in pass1_candidates:
-            #             c_id = str(c["seg"]["id"])
-            #             cur_read = spoken_map.get(c_id) or c["full"]
-            #             cur_syl = count_vi_syllables(cur_read)
-            #             b_syl = c["seg"].get("budgetSyl", 0)
-            #             if b_syl > 0 and cur_syl > b_syl * 1.06:
-            #                 deep_candidates.append({
-            #                     "seg": c["seg"],
-            #                     "full": c["full"],
-            #                     "current_read": cur_read,
-            #                     "idx": c_id
-            #                 })
-
-            #         if deep_candidates:
-            #             _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vượt thời lượng hình...")
-            #             deep_results = run_condense_chunk(deep_candidates, chat_url, headers, model, deep=True)
-            #             for c in deep_candidates:
-            #                 c_id = str(c["seg"]["id"])
-            #                 if c_id in deep_results and deep_results[c_id]:
-            #                     condensed_text = deep_results[c_id]
-            #                     orig_syl = count_vi_syllables(c["full"])
-            #                     new_syl = count_vi_syllables(condensed_text)
-            #                     if new_syl < orig_syl:
-            #                         spoken_map[c_id] = condensed_text
-            #                         _log(
-            #                             f"    • Segment #{c_id}: BẢN ĐỦ ({orig_syl} âm tiết) ➔ "
-            #                             f"RÚT GỌN SÂU ({new_syl} âm tiết / Ngân sách {c['seg'].get('budgetSyl')} âm tiết): '{condensed_text}'"
-            #                         )
-
             batch_dur = time.perf_counter() - batch_t0
             completed_so_far = batch_end_seg
             pct_so_far = (completed_so_far / total_segs) * 100
             _log(
                 f"<-- [Translate Batch {batch_num}/{total_batches} HOÀN THÀNH] Xong {len(chunk)} câu trong {batch_dur:.2f}s "
-                f"| Đã dịch & rút gọn: {completed_so_far}/{total_segs} segments ({pct_so_far:.1f}%)"
+                f"| Đã dịch: {completed_so_far}/{total_segs} segments ({pct_so_far:.1f}%)"
             )
             if job_id:
                 update_job(
@@ -1151,6 +1037,64 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
             if job_id:
                 update_job(job_id, 0, f"Lỗi dịch phân đoạn: {str(e)}", status="failed", error=str(e))
             raise RuntimeError(f"Lỗi khi dịch qua LLM ({chat_url}): {str(e)}")
+
+    # Step 4: Condensation Passes (Vietnamese spokenText) matching node_helper.py
+    spoken_map: Dict[str, str] = {}
+    if is_vietnamese and budgeted_segments:
+        pass1_candidates = []
+        for s in budgeted_segments:
+            s_id = str(s.get("id", ""))
+            full_t = results_map.get(s_id) or s.get("translation") or s.get("text", "")
+            syl = count_vi_syllables(full_t)
+            b_syl = s.get("budgetSyl", 0)
+            if b_syl > 0 and syl > b_syl * 1.06:
+                pass1_candidates.append({
+                    "id": s_id,
+                    "idx": s_id,
+                    "source": s.get("text", ""),
+                    "full": full_t,
+                    "budget": b_syl,
+                    "budgetMin": max(2, int(syl * 0.70)),
+                    "seg": s
+                })
+
+        if pass1_candidates:
+            _log(f"--> [Translate Condensation] Đang rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng (node_helper)...")
+            if job_id:
+                update_job(job_id, 92, f"Đang rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
+
+            translator = node_helper.DeepSeekTranslator(api_key=key or "dummy")
+            p1_results = translator.condense_chunk(pass1_candidates, {"model": model, "url": chat_url}, deep=False)
+            for c in pass1_candidates:
+                c_id = c["id"]
+                if c_id in p1_results and p1_results[c_id]:
+                    spoken_map[c_id] = p1_results[c_id]
+
+            # Pass 2: Deep condensation
+            deep_candidates = []
+            for c in pass1_candidates:
+                c_id = c["id"]
+                cur_read = spoken_map.get(c_id, c["full"])
+                if count_vi_syllables(cur_read) > c["budget"] * 1.06:
+                    deep_candidates.append({
+                        "id": c_id,
+                        "idx": c_id,
+                        "source": c["source"],
+                        "full": c["full"],
+                        "budget": c["budget"],
+                        "budgetMin": max(2, int(count_vi_syllables(c["full"]) * 0.50)),
+                        "seg": c["seg"]
+                    })
+
+            if deep_candidates:
+                _log(f"--> [Translate Condensation] Rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vẫn vượt sức chứa khung hình...")
+                if job_id:
+                    update_job(job_id, 96, f"Đang rút gọn sâu cho {len(deep_candidates)} câu vẫn vượt sức chứa khung hình...")
+                p2_results = translator.condense_chunk(deep_candidates, {"model": model, "url": chat_url}, deep=True)
+                for dc in deep_candidates:
+                    dc_id = dc["id"]
+                    if dc_id in p2_results and p2_results[dc_id]:
+                        spoken_map[dc_id] = p2_results[dc_id]
 
     # Assemble final segments list
     final_segments = []

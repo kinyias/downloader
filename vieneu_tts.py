@@ -484,7 +484,17 @@ def condense_segment_via_condensation(
 
     # Tính ngân sách âm tiết chuẩn theo target_duration và max_speedup
     budget_syl = max(2, int(target_duration * 3.8 * float(max_speedup or 1.35) * 0.95))
-    api_key = (headers.get("Authorization") or "").replace("Bearer ", "").strip()
+    api_key = (headers.get("Authorization") or "").replace("Bearer ", "").strip() if headers else ""
+    if not api_key or api_key == "dummy":
+        from config import DEFAULT_SETTINGS
+        api_key = os.getenv("CUSTOM_API_KEY") or DEFAULT_SETTINGS.get("customApiKey", "")
+    if not chat_url:
+        from config import DEFAULT_SETTINGS
+        ep = os.getenv("CUSTOM_API_ENDPOINT") or DEFAULT_SETTINGS.get("customApiEndpoint", "")
+        chat_url = f"{ep.rstrip('/')}/chat/completions" if ep else "https://api.deepseek.com/v1/chat/completions"
+    if not model:
+        from config import DEFAULT_SETTINGS
+        model = os.getenv("CUSTOM_MODEL") or DEFAULT_SETTINGS.get("customModel", "gemini-lite")
     translator = node_helper.DeepSeekTranslator(api_key=api_key or "dummy")
     
     cand = [{
@@ -874,7 +884,17 @@ def build_full_dubbed_audio(
                     })
 
                 if condense_candidates:
-                    api_key = (headers.get("Authorization") or "").replace("Bearer ", "").strip()
+                    api_key = (headers.get("Authorization") or "").replace("Bearer ", "").strip() if headers else ""
+                    if not api_key or api_key == "dummy":
+                        from config import DEFAULT_SETTINGS
+                        api_key = os.getenv("CUSTOM_API_KEY") or DEFAULT_SETTINGS.get("customApiKey", "")
+                    if not chat_url:
+                        from config import DEFAULT_SETTINGS
+                        ep = os.getenv("CUSTOM_API_ENDPOINT") or DEFAULT_SETTINGS.get("customApiEndpoint", "")
+                        chat_url = f"{ep.rstrip('/')}/chat/completions" if ep else "https://api.deepseek.com/v1/chat/completions"
+                    if not model:
+                        from config import DEFAULT_SETTINGS
+                        model = os.getenv("CUSTOM_MODEL") or DEFAULT_SETTINGS.get("customModel", "gemini-lite")
                     translator = node_helper.DeepSeekTranslator(api_key=api_key or "dummy")
                     
                     # Pass 1: Condensation chuẩn
