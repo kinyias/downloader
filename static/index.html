@@ -282,6 +282,10 @@
               </div>
 
               <div class="flex items-center gap-2 flex-wrap">
+                <button id="detailFullFlowOnlineBtn" class="py-2 px-4 rounded-xl text-white font-bold text-xs shadow-md shadow-pink-500/25 flex items-center gap-1.5 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-700 hover:via-purple-700 hover:to-indigo-700 transition-all active:scale-95" title="Quy trình trọn gói: Ghép video ➔ CapCut ASR ➔ Dịch TV ➔ Lồng tiếng VieNeu-TTS ➔ Render video dubbing ➔ Upload storage.to">
+                  <svg class="w-4 h-4 text-pink-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                  <span>🎬🎙️ Ghép & Lồng Tiếng Full Flow</span>
+                </button>
                 <button id="detailMergeOnlineBtn" class="btn-primary-gradient py-2 px-4 rounded-xl text-white font-semibold text-xs shadow flex items-center gap-1.5" title="Ghép tất cả các tập trực tiếp từ luồng CDN mạng thành 1 file duy nhất mà không cần tải file lẻ">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                   <span>⚡ Ghép Trực Tiếp (Không Tải)</span>
@@ -332,6 +336,10 @@
                 <button id="detailSelectRangeBtn" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-200 transition">Chọn</button>
               </div>
 
+              <button id="detailMergeSelectedDubOnlineBtn" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white font-bold shadow flex items-center gap-1.5 transition-all active:scale-95" title="Chạy trọn gói Ghép + CapCut ASR + Dịch + Dubbing VieNeu-TTS + Render + Upload storage.to cho các tập đã chọn">
+                <svg class="w-3.5 h-3.5 text-pink-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                <span>🎙️ Lồng Tiếng Tập Đã Chọn</span>
+              </button>
               <button id="detailMergeSelectedOnlineBtn" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold shadow flex items-center gap-1.5" title="Ghép các tập được chọn trực tiếp thành 1 file">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 <span>Ghép Trực Tiếp Tập Chọn</span>
@@ -476,10 +484,16 @@
               Xuất Danh Sách Link Tải (.csv)
             </button>
 
-            <!-- Merge Video Trigger Button -->
-            <button id="openMergeModalBtn" class="mt-2 w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:via-indigo-700 hover:to-blue-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5">
-              <svg class="w-4 h-4 sm:w-5 sm:h-5 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2zM7 8h.01M7 12h.01M7 16h.01"/></svg>
-              <span>Ghép Video Đã Tải (FFmpeg)</span>
+            <!-- Full Flow Pipeline Trigger Button -->
+            <button id="openFullFlowModalBtn" class="mt-2 w-full py-3 px-4 rounded-xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-700 hover:via-purple-700 hover:to-indigo-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-pink-500/25 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5" title="Ghép video ➔ CapCut ASR ➔ Dịch TV ➔ Lồng tiếng VieNeu-TTS ➔ Render video dubbing ➔ Upload storage.to">
+              <svg class="w-4 h-4 sm:w-5 sm:h-5 text-pink-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+              <span>🎬🎙️ Ghép & Lồng Tiếng Full Flow</span>
+            </button>
+
+            <!-- Simple Merge Video Trigger Button -->
+            <button id="openMergeModalBtn" class="mt-2 w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm border border-slate-300 shadow-sm flex items-center justify-center gap-2 transition-all">
+              <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2zM7 8h.01M7 12h.01M7 16h.01"/></svg>
+              <span>⚡ Ghép Nhanh Video Thường</span>
             </button>
           </div>
         </div>
@@ -493,9 +507,13 @@
                 <span id="queueCountBadge" class="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700">0 tác vụ</span>
               </div>
               <div class="flex items-center gap-2">
-                <button id="openMergeModalHeaderBtn" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs shadow flex items-center gap-1.5 transition-all">
-                  <svg class="w-3.5 h-3.5 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                  <span>Ghép Video</span>
+                <button id="openFullFlowModalBtn" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-700 hover:via-purple-700 hover:to-indigo-700 text-white font-semibold text-xs shadow flex items-center gap-1.5 transition-all" title="Mở hộp thoại Ghép & Lồng Tiếng Trọn Gói">
+                  <svg class="w-3.5 h-3.5 text-pink-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                  <span>Ghép & Lồng Tiếng</span>
+                </button>
+                <button id="openMergeModalHeaderBtn" class="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center gap-1.5 transition-all">
+                  <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                  <span>Chỉ Ghép Video</span>
                 </button>
                 <div id="queueStatus" class="text-xs font-semibold text-slate-500">Đang chờ tác vụ</div>
               </div>
@@ -937,6 +955,121 @@
               </button>
             </div>
           </div>
+
+          <!-- 3.5. AI Dubbing & Full Flow Pipeline Configuration Card -->
+          <div id="mergeAiDubbingCard" class="p-4 rounded-2xl bg-gradient-to-r from-pink-50/80 via-purple-50/70 to-indigo-50/80 border border-pink-200 shadow-sm flex flex-col gap-3 transition-all">
+            <div class="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-pink-200/80">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-pink-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-pink-500/30">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                </div>
+                <div>
+                  <h4 class="text-xs font-extrabold text-pink-950 uppercase tracking-wider flex items-center gap-2">
+                    <span>Quy Trình Tự Động Trọn Gói (Full Flow Pipeline)</span>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-pink-200 text-pink-800">Tự Động 100%</span>
+                  </h4>
+                  <p class="text-[11px] text-pink-800/80 mt-0.5">Ghép Video ➔ CapCut ASR ➔ Dịch TV ➔ Lồng tiếng VieNeu-TTS ➔ Render Video Dubbing ➔ Upload Storage.to</p>
+                </div>
+              </div>
+
+              <!-- Storage.to Upload Checkbox -->
+              <label class="flex items-center gap-2 bg-white/90 px-3 py-1.5 rounded-xl border border-pink-200 shadow-xs cursor-pointer select-none hover:bg-white transition-all">
+                <input id="mergeUploadStorage" type="checkbox" checked class="rounded text-pink-600 focus:ring-pink-500 w-4 h-4 cursor-pointer">
+                <span class="text-xs font-bold text-pink-900 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                  Tải lên storage.to
+                </span>
+              </label>
+            </div>
+
+            <!-- Pipeline Flow Pills -->
+            <div id="mergePipelineFlowPills" class="flex items-center gap-1.5 flex-wrap text-[11px] font-bold py-0.5">
+              <span id="mergeFlowPillDownload" class="hidden px-2 py-0.5 rounded-lg bg-sky-100 text-sky-800 items-center gap-1"><span>1</span> Tải Từng Tập</span>
+              <span id="mergeFlowPillDownloadArrow" class="hidden text-slate-400">➔</span>
+              <span class="px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 flex items-center gap-1"><span id="mergeFlowPillMergeIdx">1</span> Ghép Video</span>
+              <span class="text-slate-400">➔</span>
+              <span class="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 flex items-center gap-1"><span id="mergeFlowPillAsrIdx">2</span> CapCut ASR</span>
+              <span class="text-slate-400">➔</span>
+              <span class="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 flex items-center gap-1"><span id="mergeFlowPillTransIdx">3</span> Dịch Phụ Đề</span>
+              <span class="text-slate-400">➔</span>
+              <span class="px-2 py-0.5 rounded-lg bg-purple-100 text-purple-800 flex items-center gap-1"><span id="mergeFlowPillDubIdx">4</span> VieNeu-TTS</span>
+              <span class="text-slate-400">➔</span>
+              <span class="px-2 py-0.5 rounded-lg bg-pink-100 text-pink-800 flex items-center gap-1"><span id="mergeFlowPillRenderIdx">5</span> Render Video</span>
+              <span class="text-slate-400">➔</span>
+              <span class="px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 flex items-center gap-1"><span id="mergeFlowPillStorageIdx">6</span> Upload Storage.to</span>
+            </div>
+
+            <!-- Configuration Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              <!-- Voice Selection -->
+              <div>
+                <label for="mergeVoiceSelect" class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-purple-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd"/></svg>
+                  Giọng đọc VieNeu-TTS:
+                </label>
+                <select id="mergeVoiceSelect" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-bold outline-none bg-white border border-purple-200 text-purple-900">
+                  <option value="Ngọc Huyền" selected>Ngọc Huyền (Nữ Bắc - Mặc định)</option>
+                  <option value="Minh Quân">Minh Quân (Nam Bắc - Chuẩn)</option>
+                  <option value="Minh Đức">Minh Đức (Nam Bắc - Trầm ấm)</option>
+                  <option value="Phạm Tuyên">Phạm Tuyên (Nam Bắc - Truyền cảm)</option>
+                  <option value="Trúc Ly">Trúc Ly (Nữ Bắc - Nhẹ nhàng)</option>
+                  <option value="Mai Anh">Mai Anh (Nữ Bắc - Tươi sáng)</option>
+                  <option value="Quỳnh Anh">Quỳnh Anh (Nữ Bắc - Thanh thoát)</option>
+                  <option value="Xuân Vĩnh">Xuân Vĩnh (Nam Bắc - Rõ ràng)</option>
+                  <option value="Anh Khôi">Anh Khôi (Nam Bắc - Trẻ trung)</option>
+                  <option value="Mạnh Dũng">Mạnh Dũng (Nam Bắc - Hùng hồn)</option>
+                  <option value="Quang Sơn">Quang Sơn (Nam Trung - Truyền cảm)</option>
+                  <option value="Ngọc Trân">Ngọc Trân (Nữ Trung - Ngọt ngào)</option>
+                  <option value="Adam">Adam (Nam Nam - Hiện đại)</option>
+                  <option value="Thái Sơn">Thái Sơn (Nam Nam - Đĩnh đạc)</option>
+                  <option value="Thùy Dung">Thùy Dung (Nữ Nam - Dịu dàng)</option>
+                  <option value="Mỹ Duyên">Mỹ Duyên (Nữ Nam - Trong trẻo)</option>
+                </select>
+              </div>
+
+              <!-- Translation Prompt Preset -->
+              <div>
+                <label for="mergeTranslatePrompt" class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/></svg>
+                  Prompt Dịch thuật:
+                </label>
+                <select id="mergeTranslatePrompt" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-semibold outline-none bg-white border border-emerald-200 text-emerald-900">
+                  <option value="ai_tong_hop_thong_minh" selected>AI Tổng hợp thông minh (Chuẩn)</option>
+                  <option value="phim_hien_dai_do_thi">Phim Hiện đại - Đô thị</option>
+                  <option value="phim_co_trang_tien_hiep">Phim Cổ trang - Tiên hiệp</option>
+                  <option value="phim_tong_tai_hao_mon">Phim Tổng tài - Hào môn</option>
+                  <option value="phim_chien_than_nghich_tap">Phim Chiến thần - Nghịch tập</option>
+                  <option value="phim_hai_huoc_tieu_pham">Phim Hài hước - Tiểu phẩm</option>
+                </select>
+              </div>
+
+              <!-- Translation Model -->
+              <div>
+                <label for="mergeTranslateModel" class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                  Model Dịch:
+                </label>
+                <input id="mergeTranslateModel" type="text" value="gemini-lite" placeholder="gemini-lite, deepseek-chat..." class="glass-input w-full px-3 py-2 rounded-xl text-xs font-mono font-semibold outline-none bg-white border border-blue-200 text-blue-900">
+              </div>
+
+              <!-- Dubbing / Audio Mix Config -->
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-pink-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clip-rule="evenodd"/></svg>
+                  Hòa âm & Lách bản quyền:
+                </label>
+                <div class="flex items-center gap-2 text-[11px] text-slate-600 bg-white/90 p-1.5 rounded-xl border border-pink-200 font-medium">
+                  <span class="font-bold text-pink-700">Voice 3.0x</span>
+                  <span>•</span>
+                  <span>Nhạc nền 0.1x</span>
+                  <span>•</span>
+                  <span>Hạ 5%</span>
+                  <span>•</span>
+                  <span>Mute 0.1s/0.9s</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 4. Real-time Progress Monitor (Visible during/after processing) -->
@@ -981,12 +1114,17 @@
           <div id="mergeDoneActions" class="pt-2 border-t border-indigo-200/80 hidden items-center justify-between flex-wrap gap-2">
             <div class="text-xs font-bold text-emerald-700 flex items-center gap-1.5">
               <svg class="w-4 h-4 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-              <span>Ghép video thành công! Bạn có thể xem ngay:</span>
+              <span>Xử lý hoàn tất! Bạn có thể xem ngay:</span>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- Play Dubbed Video Button (Shown if dubbed) -->
+              <button id="mergePlayDubbedResultBtn" class="hidden px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white font-bold text-xs shadow-md flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-pink-200" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                <span>🎬 Xem Video Lồng Tiếng</span>
+              </button>
               <button id="mergePlayResultBtn" class="btn-primary-gradient px-3 py-1.5 rounded-lg text-white font-semibold text-xs shadow flex items-center gap-1">
                 <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
-                <span>Xem Video</span>
+                <span>Xem Video Gốc</span>
               </button>
               <button id="mergeOpenResultFolderBtn" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 shadow-sm flex items-center gap-1">
                 <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
@@ -999,16 +1137,23 @@
             </div>
           </div>
 
-          <!-- storage.to Links Section (Shown when uploaded) -->
+          <!-- storage.to Links Section (Shown when uploaded - All 5 Assets) -->
           <div id="mergeStorageToSection" class="pt-2 border-t border-indigo-200/80 hidden flex-col gap-2">
-            <div class="text-xs font-bold text-pink-600 flex items-center gap-1.5">
-              <svg class="w-4 h-4 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-              <span>Liên kết lưu trữ trực tuyến (storage.to):</span>
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="text-xs font-bold text-pink-600 flex items-center gap-1.5">
+                <svg class="w-4 h-4 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                <span>Liên kết lưu trữ trực tuyến (storage.to):</span>
+              </div>
+              <button id="mergeCopyAllStorageUrlsBtn" type="button" class="px-2.5 py-1 text-xs bg-pink-50 hover:bg-pink-100 text-pink-700 font-bold rounded-lg border border-pink-200 flex items-center gap-1 transition-all">
+                <svg class="w-3.5 h-3.5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <span>Sao chép tất cả link</span>
+              </button>
             </div>
-            <!-- Video URL Row -->
+
+            <!-- 1. Video Gốc URL Row -->
             <div id="mergeVideoUrlRow" class="hidden items-center justify-between bg-white p-2 rounded-lg border border-pink-200 gap-2">
               <div class="flex items-center gap-2 min-w-0 flex-1">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-700 shrink-0">VIDEO</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-700 shrink-0">VIDEO GỐC</span>
                 <a id="mergeVideoUrlLink" href="#" target="_blank" class="text-xs text-indigo-600 hover:underline truncate font-mono select-all"></a>
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
@@ -1020,21 +1165,71 @@
                 </button>
               </div>
             </div>
-            <!-- Subtitle SRT Row -->
+
+            <!-- 2. Subtitle Gốc SRT Row -->
             <div id="mergeSrtUrlRow" class="hidden items-center justify-between bg-white p-2 rounded-lg border border-amber-200 gap-2">
               <div class="flex items-center gap-2 min-w-0 flex-1">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 shrink-0">PHỤ ĐỀ SRT</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 shrink-0">SUB GỐC (ASR)</span>
                 <a id="mergeSrtUrlLink" href="#" target="_blank" class="text-xs text-indigo-600 hover:underline truncate font-mono select-all"></a>
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
                 <a id="mergeOpenSrtUrlBtn" href="#" target="_blank" class="px-2.5 py-1 text-xs bg-amber-50 text-amber-600 hover:bg-amber-100 font-semibold rounded-md border border-amber-200 flex items-center gap-1">
-                  <span>Tải Phụ Đề</span>
+                  <span>Tải SRT</span>
                 </a>
                 <button id="mergeCopySrtUrlBtn" type="button" class="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-md">
                   Sao chép
                 </button>
               </div>
             </div>
+
+            <!-- 3. Subtitle Dịch Tiếng Việt SRT Row -->
+            <div id="mergeViSrtUrlRow" class="hidden items-center justify-between bg-white p-2 rounded-lg border border-emerald-200 gap-2">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 shrink-0">SUB TIẾNG VIỆT</span>
+                <a id="mergeViSrtUrlLink" href="#" target="_blank" class="text-xs text-emerald-700 hover:underline truncate font-mono select-all"></a>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <a id="mergeOpenViSrtUrlBtn" href="#" target="_blank" class="px-2.5 py-1 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold rounded-md border border-emerald-200 flex items-center gap-1">
+                  <span>Tải Sub TV</span>
+                </a>
+                <button id="mergeCopyViSrtUrlBtn" type="button" class="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-md">
+                  Sao chép
+                </button>
+              </div>
+            </div>
+
+            <!-- 4. Dubbed Audio MP3 Row -->
+            <div id="mergeDubAudioUrlRow" class="hidden items-center justify-between bg-white p-2 rounded-lg border border-purple-200 gap-2">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 shrink-0">AUDIO DUBBING</span>
+                <a id="mergeDubAudioUrlLink" href="#" target="_blank" class="text-xs text-purple-700 hover:underline truncate font-mono select-all"></a>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <a id="mergeOpenDubAudioUrlBtn" href="#" target="_blank" class="px-2.5 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 font-semibold rounded-md border border-purple-200 flex items-center gap-1">
+                  <span>Nghe Audio</span>
+                </a>
+                <button id="mergeCopyDubAudioUrlBtn" type="button" class="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-md">
+                  Sao chép
+                </button>
+              </div>
+            </div>
+
+            <!-- 5. Final Dubbed Video MP4 Row -->
+            <div id="mergeDubVideoUrlRow" class="hidden items-center justify-between bg-gradient-to-r from-pink-50 to-purple-50 p-2.5 rounded-xl border border-pink-300 gap-2 shadow-xs">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-gradient-to-r from-pink-600 to-purple-600 text-white shrink-0 shadow-xs">🎬 VIDEO LỒNG TIẾNG</span>
+                <a id="mergeDubVideoUrlLink" href="#" target="_blank" class="text-xs text-pink-700 font-bold hover:underline truncate font-mono select-all"></a>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <a id="mergeOpenDubVideoUrlBtn" href="#" target="_blank" class="px-3 py-1 text-xs bg-pink-600 hover:bg-pink-700 text-white font-bold rounded-lg shadow-xs flex items-center gap-1">
+                  <span>Mở Video</span>
+                </a>
+                <button id="mergeCopyDubVideoUrlBtn" type="button" class="px-2.5 py-1 text-xs bg-white hover:bg-slate-100 text-slate-700 font-medium rounded-md border border-slate-200">
+                  Sao chép
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -1044,19 +1239,25 @@
       <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-wrap gap-3">
         <div class="text-xs text-slate-500 flex items-center gap-1.5">
           <svg class="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span>Tự động tối ưu đa luồng CPU và bảo toàn đồng bộ âm thanh - hình ảnh (A/V sync).</span>
+          <span>Tự động tối ưu đa luồng GPU NVENC / CPU và bảo toàn đồng bộ âm thanh - hình ảnh (A/V sync).</span>
         </div>
 
-        <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-2.5 flex-wrap">
           <button id="mergeCancelBtn" class="hidden px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold text-xs sm:text-sm border border-rose-200 transition-all">
             Hủy Ghép
           </button>
           <button id="mergeCloseBtn" class="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs sm:text-sm border border-slate-300 shadow-sm transition-all">
             Đóng
           </button>
-          <button id="mergeStartBtn" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:via-indigo-700 hover:to-blue-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-indigo-500/25 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none disabled:shadow-none">
-            <svg class="w-4 h-4 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span>Bắt Đầu Ghép Video</span>
+          <!-- Button 1: Simple Merge -->
+          <button id="mergeStartBtn" class="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm border border-slate-300 shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            <span>⚡ Chỉ Ghép Video Gốc</span>
+          </button>
+          <!-- Button 2: Full Flow (Ghép -> ASR -> Dịch -> Dubbing -> Render -> Upload storage.to) -->
+          <button id="mergeFullFlowBtn" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-700 hover:via-purple-700 hover:to-indigo-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-pink-500/25 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            <svg class="w-4 h-4 text-pink-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+            <span>🎬🎙️ Ghép & Lồng Tiếng (Full Flow)</span>
           </button>
         </div>
       </div>
@@ -2188,7 +2389,18 @@
             return;
           }
           const vids = detailEpisodes.map(ep => ep.vid).filter(Boolean);
-          openMergeOnlineModal(vids, d.series_name, d.series_id);
+          openMergeOnlineModal(vids, d.series_name, d.series_id, { fullFlow: false });
+        };
+      }
+
+      if ($('detailFullFlowOnlineBtn')) {
+        $('detailFullFlowOnlineBtn').onclick = () => {
+          if (!detailEpisodes.length) {
+            toast('Không có tập phim nào để xử lý', 'error');
+            return;
+          }
+          const vids = detailEpisodes.map(ep => ep.vid).filter(Boolean);
+          openMergeOnlineModal(vids, d.series_name, d.series_id, { fullFlow: true });
         };
       }
 
@@ -2200,7 +2412,19 @@
             return;
           }
           const vids = selected.map(ep => ep.vid).filter(Boolean);
-          openMergeOnlineModal(vids, d.series_name, d.series_id);
+          openMergeOnlineModal(vids, d.series_name, d.series_id, { fullFlow: false });
+        };
+      }
+
+      if ($('detailMergeSelectedDubOnlineBtn')) {
+        $('detailMergeSelectedDubOnlineBtn').onclick = () => {
+          const selected = detailEpisodes.filter(ep => ep.checked);
+          if (!selected.length) {
+            toast('Vui lòng chọn ít nhất 1 tập phim để lồng tiếng', 'error');
+            return;
+          }
+          const vids = selected.map(ep => ep.vid).filter(Boolean);
+          openMergeOnlineModal(vids, d.series_name, d.series_id, { fullFlow: true });
         };
       }
 
@@ -2479,6 +2703,8 @@
     let mergeEventSource = null;
     let mergePollInterval = null;
     let lastResultFilePath = '';
+    let lastDubbedVideoPath = '';
+    let lastDubbedVideoUrl = '';
 
     let mergeCurrentPage = 1;
     let mergePageSize = 20;
@@ -2504,23 +2730,48 @@
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
-    function setMergeButtonLoading(isLoading) {
-      const btn = $('mergeStartBtn');
-      if (!btn) return;
-      if (isLoading) {
-        btn.disabled = true;
-        btn.classList.add('opacity-50', 'cursor-not-allowed', 'pointer-events-none', 'shadow-none');
-        btn.innerHTML = `
-          <svg class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-          <span>Đang Ghép Video...</span>
-        `;
-      } else {
-        btn.disabled = false;
-        btn.classList.remove('opacity-50', 'cursor-not-allowed', 'pointer-events-none', 'shadow-none');
-        btn.innerHTML = `
-          <svg class="w-4 h-4 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span>Bắt Đầu Ghép Video</span>
-        `;
+    function setMergeButtonLoading(isLoading, activeMode = 'merge_only') {
+      const btnMerge = $('mergeStartBtn');
+      const btnFullFlow = $('mergeFullFlowBtn');
+
+      if (btnMerge) {
+        if (isLoading) {
+          btnMerge.disabled = true;
+          btnMerge.classList.add('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+          if (activeMode !== 'full_flow') {
+            btnMerge.innerHTML = `
+              <svg class="w-4 h-4 animate-spin text-slate-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              <span>Đang Ghép Video...</span>
+            `;
+          }
+        } else {
+          btnMerge.disabled = false;
+          btnMerge.classList.remove('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+          btnMerge.innerHTML = `
+            <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            <span>⚡ Chỉ Ghép Video Gốc</span>
+          `;
+        }
+      }
+
+      if (btnFullFlow) {
+        if (isLoading) {
+          btnFullFlow.disabled = true;
+          btnFullFlow.classList.add('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+          if (activeMode === 'full_flow') {
+            btnFullFlow.innerHTML = `
+              <svg class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              <span>Đang Chạy Full Flow...</span>
+            `;
+          }
+        } else {
+          btnFullFlow.disabled = false;
+          btnFullFlow.classList.remove('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+          btnFullFlow.innerHTML = `
+            <svg class="w-4 h-4 text-pink-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+            <span>🎬🎙️ Ghép & Lồng Tiếng (Full Flow)</span>
+          `;
+        }
       }
     }
 
@@ -2528,6 +2779,7 @@
     let isOnlineMergeMode = false;
     let onlineMergeVids = [];
     let onlineMergeSeriesTitle = '';
+    let isMergeFullFlowPreferred = false;
 
     async function fetchDetectedGpu() {
       const badgeText = $('mergeGpuBadgeText');
@@ -2541,7 +2793,7 @@
       }
     }
 
-    async function openMergeOnlineModal(vids, seriesTitle, seriesId) {
+    async function openMergeOnlineModal(vids, seriesTitle, seriesId, options = {}) {
       if (!vids || !vids.length) {
         toast('Vui lòng chọn ít nhất 1 tập phim để ghép', 'error');
         return;
@@ -2549,6 +2801,7 @@
       isOnlineMergeMode = true;
       onlineMergeVids = vids;
       onlineMergeSeriesTitle = seriesTitle || 'Phim_Ngan';
+      isMergeFullFlowPreferred = !!options.fullFlow;
 
       const modal = $('mergeModal');
       modal.classList.remove('hidden');
@@ -2567,18 +2820,55 @@
       $('mergeCancelBtn').classList.add('hidden');
       if (!currentMergeTaskId) setMergeButtonLoading(false);
 
+      // Flow Pills: Online mode includes step 1: "Tải Từng Tập"
+      if ($('mergeFlowPillDownload')) {
+        $('mergeFlowPillDownload').classList.remove('hidden');
+        $('mergeFlowPillDownload').classList.add('flex');
+      }
+      if ($('mergeFlowPillDownloadArrow')) {
+        $('mergeFlowPillDownloadArrow').classList.remove('hidden');
+      }
+      if ($('mergeFlowPillMergeIdx')) $('mergeFlowPillMergeIdx').textContent = '2';
+      if ($('mergeFlowPillAsrIdx')) $('mergeFlowPillAsrIdx').textContent = '3';
+      if ($('mergeFlowPillTransIdx')) $('mergeFlowPillTransIdx').textContent = '4';
+      if ($('mergeFlowPillDubIdx')) $('mergeFlowPillDubIdx').textContent = '5';
+      if ($('mergeFlowPillRenderIdx')) $('mergeFlowPillRenderIdx').textContent = '6';
+      if ($('mergeFlowPillStorageIdx')) $('mergeFlowPillStorageIdx').textContent = '7';
+
+      // Auto check full flow toggles
+      if (options.fullFlow) {
+        if ($('mergeEnableDubbing')) $('mergeEnableDubbing').checked = true;
+        if ($('mergeUploadToStorage')) $('mergeUploadToStorage').checked = true;
+        if ($('mergeGenerateSubtitles')) $('mergeGenerateSubtitles').checked = true;
+        if ($('mergeTranslateSubtitles')) $('mergeTranslateSubtitles').checked = true;
+      }
+
       const tbody = $('mergeTableBody');
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-xl text-center">
-            <div class="flex flex-col items-center justify-center gap-2">
-              <span class="px-3 py-1 rounded-full bg-blue-600 text-white font-bold text-xs shadow-sm">⚡ GHÉP TRỰC TIẾP TRỰC TUYẾN (KHÔNG TẢI FILE LẺ)</span>
-              <h4 class="text-sm font-bold text-slate-800">Đã chọn ${vids.length} tập phim để ghép nối trực tiếp từ CDN mạng</h4>
-              <p class="text-xs text-slate-600 max-w-xl">Hệ thống sẽ giải mã luồng và ghép nối trực tiếp bằng GPU NVENC thành 1 file MP4 duy nhất. <strong>Không ghi bất kỳ file tập lẻ nào xuống đĩa cứng!</strong></p>
-            </div>
-          </td>
-        </tr>
-      `;
+      if (options.fullFlow) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="p-6 bg-gradient-to-r from-pink-50 via-purple-50 to-indigo-50 border border-pink-200/80 rounded-xl text-center">
+              <div class="flex flex-col items-center justify-center gap-2">
+                <span class="px-3.5 py-1 rounded-full bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 text-white font-bold text-xs shadow-sm">🎬🎙️ QUY TRÌNH TRỌN GÓI: TẢI TỪNG TẬP ➔ GHÉP ➔ ASR ➔ DỊCH TV ➔ DUBBING ➔ RENDER ➔ STORAGE.TO</span>
+                <h4 class="text-sm font-bold text-slate-800">Đã chọn ${vids.length} tập phim để chạy Full Flow tự động</h4>
+                <p class="text-xs text-slate-600 max-w-xl">Hệ thống sẽ tải đa luồng từng tập, ghép nối, nhận diện phụ đề CapCut ASR, dịch thuật AI sang tiếng Việt, lồng tiếng VieNeu-TTS, render video hoàn chỉnh và tự động upload toàn bộ lên <strong>storage.to</strong>.</p>
+              </div>
+            </td>
+          </tr>
+        `;
+      } else {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-xl text-center">
+              <div class="flex flex-col items-center justify-center gap-2">
+                <span class="px-3 py-1 rounded-full bg-blue-600 text-white font-bold text-xs shadow-sm">⚡ GHÉP TRỰC TIẾP TRỰC TUYẾN (KHÔNG TẢI FILE LẺ)</span>
+                <h4 class="text-sm font-bold text-slate-800">Đã chọn ${vids.length} tập phim để ghép nối trực tiếp từ CDN mạng</h4>
+                <p class="text-xs text-slate-600 max-w-xl">Hệ thống sẽ giải mã luồng và ghép nối trực tiếp bằng GPU NVENC thành 1 file MP4 duy nhất. <strong>Không ghi bất kỳ file tập lẻ nào xuống đĩa cứng!</strong></p>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
 
       if ($('mergeSelectedCount')) {
         $('mergeSelectedCount').textContent = `${vids.length} tập trực tuyến`;
@@ -2594,9 +2884,10 @@
       fetchDetectedGpu();
     }
 
-    async function openMergeModal() {
+    async function openMergeModal(options = {}) {
       isOnlineMergeMode = false;
       onlineMergeVids = [];
+      isMergeFullFlowPreferred = !!options.fullFlow;
 
       const modal = $('mergeModal');
       modal.classList.remove('hidden');
@@ -2608,8 +2899,34 @@
       $('mergeProgressContainer').classList.remove('flex');
       $('mergeDoneActions').classList.add('hidden');
       $('mergeDoneActions').classList.remove('flex');
+      if ($('mergeStorageToSection')) {
+        $('mergeStorageToSection').classList.add('hidden');
+        $('mergeStorageToSection').classList.remove('flex');
+      }
       $('mergeCancelBtn').classList.add('hidden');
       if (!currentMergeTaskId) setMergeButtonLoading(false);
+
+      // Flow Pills: Local files do not need "Tải Từng Tập"
+      if ($('mergeFlowPillDownload')) {
+        $('mergeFlowPillDownload').classList.add('hidden');
+        $('mergeFlowPillDownload').classList.remove('flex');
+      }
+      if ($('mergeFlowPillDownloadArrow')) {
+        $('mergeFlowPillDownloadArrow').classList.add('hidden');
+      }
+      if ($('mergeFlowPillMergeIdx')) $('mergeFlowPillMergeIdx').textContent = '1';
+      if ($('mergeFlowPillAsrIdx')) $('mergeFlowPillAsrIdx').textContent = '2';
+      if ($('mergeFlowPillTransIdx')) $('mergeFlowPillTransIdx').textContent = '3';
+      if ($('mergeFlowPillDubIdx')) $('mergeFlowPillDubIdx').textContent = '4';
+      if ($('mergeFlowPillRenderIdx')) $('mergeFlowPillRenderIdx').textContent = '5';
+      if ($('mergeFlowPillStorageIdx')) $('mergeFlowPillStorageIdx').textContent = '6';
+
+      if (options.fullFlow) {
+        if ($('mergeEnableDubbing')) $('mergeEnableDubbing').checked = true;
+        if ($('mergeUploadToStorage')) $('mergeUploadToStorage').checked = true;
+        if ($('mergeGenerateSubtitles')) $('mergeGenerateSubtitles').checked = true;
+        if ($('mergeTranslateSubtitles')) $('mergeTranslateSubtitles').checked = true;
+      }
       
       mergeCurrentPage = 1;
       mergeSearchQuery = '';
@@ -2965,7 +3282,7 @@
       renderMergePagination(mergeVideos.length, filtered.length);
     }
 
-    async function startVideoMerge() {
+    async function startVideoMerge(isFullFlow = false) {
       const cutSec = parseFloat($('mergeCutEndSeconds')?.value) || 0;
       const mirror = $('mergeMirror')?.checked || false;
       const colorFilter = $('mergeColorFilter')?.value || 'none';
@@ -2976,6 +3293,53 @@
       const format = $('mergeFormat')?.value || 'mp4';
       const outputDir = $('mergeDirInput')?.value.trim() || '';
       const outputName = $('mergeOutputName')?.value.trim() || `Phim_Ghep_${Date.now()}.${format}`;
+
+      const enableDubbing = isFullFlow || ($('mergeEnableDubbing')?.checked || false);
+      const generateSubtitles = isFullFlow || ($('mergeGenerateSubtitles')?.checked || false);
+      const translateSubtitles = isFullFlow || ($('mergeTranslateSubtitles')?.checked || false);
+      const uploadToStorage = isFullFlow || ($('mergeUploadToStorage')?.checked !== false);
+      const ttsVoice = $('mergeVoiceSelect')?.value || 'Ngọc Huyền';
+      const translateModel = $('mergeTranslateModel')?.value.trim() || 'gemini-lite';
+      const translatePrompt = $('mergeTranslatePrompt')?.value || 'ai_tong_hop_thong_minh';
+      const dubVolume = parseFloat($('mergeDubVolume')?.value || 3.0);
+      const bgVolume = parseFloat($('mergeBgVolume')?.value || 0.1);
+      const concurrency = parseInt($('downloadConcurrency')?.value || 5, 10);
+
+      const payload = {
+        cut_end_seconds: cutSec,
+        mirror,
+        quality: 'original',
+        resolution: 'original',
+        fps: 'original',
+        bitrate: 'auto',
+        codec,
+        gpu: $('mergeGpu')?.value || 'nvenc',
+        color_filter: colorFilter,
+        custom_color_filter: customColorFilter,
+        audio_effect: audioEffect,
+        custom_audio_effect: customAudioEffect,
+        format,
+        output_dir: outputDir,
+        output_name: outputName,
+
+        // Full flow & Dubbing options
+        full_flow: isFullFlow,
+        pipeline_mode: isFullFlow ? 'full_flow' : 'merge_only',
+        enable_dubbing: enableDubbing,
+        dubbing: enableDubbing,
+        generate_subtitles: generateSubtitles,
+        translate_subtitles: translateSubtitles,
+        upload_to_storage: uploadToStorage,
+        tts_voice: ttsVoice,
+        voice: ttsVoice,
+        translate_model: translateModel,
+        model: translateModel,
+        translate_prompt: translatePrompt,
+        prompt: translatePrompt,
+        dub_volume: dubVolume,
+        bg_volume: bgVolume,
+        concurrency: concurrency,
+      };
 
       if (isOnlineMergeMode) {
         if (!onlineMergeVids.length) {
@@ -2993,7 +3357,7 @@
           $('mergeStorageToSection').classList.remove('flex');
         }
         $('mergeCancelBtn').classList.remove('hidden');
-        setMergeButtonLoading(true);
+        setMergeButtonLoading(true, isFullFlow ? 'full_flow' : 'merge_only');
 
         $('mergeProgressBar').style.width = '0%';
         $('mergeProgressPercent').textContent = '0%';
@@ -3001,32 +3365,20 @@
         $('mergeEtaText').textContent = '-';
         $('mergeDurationText').textContent = '00:00 / --:--';
         $('mergeOutputSizeText').textContent = '-';
-        $('mergeStatusMsg').textContent = `Đang giải mã luồng CDN (${onlineMergeVids.length} tập) & ghép trực tiếp...`;
-        $('mergeStatusBadgeText').textContent = 'Đang ghép trực tuyến...';
-        $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5';
+        $('mergeStatusMsg').textContent = isFullFlow
+          ? `Đang khởi tạo quy trình trọn gói: Tải từng tập (${onlineMergeVids.length} tập) ➔ Ghép video ➔ CapCut ASR ➔ Dịch TV ➔ Lồng tiếng ➔ Render ➔ Storage.to...`
+          : `Đang tải & ghép trực tuyến (${onlineMergeVids.length} tập)...`;
+        $('mergeStatusBadgeText').textContent = isFullFlow ? 'Đang chạy Full Flow...' : 'Đang ghép trực tuyến...';
+        $('mergeStatusBadge').className = isFullFlow
+          ? 'px-2.5 py-1 text-xs font-bold rounded-lg bg-pink-100 text-pink-700 flex items-center gap-1.5'
+          : 'px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5';
 
         try {
-          const resp = await fetch('/api/merge/start_online', {
+          payload.video_ids = onlineMergeVids;
+          const resp = await fetch(isFullFlow ? '/api/merge/start_full_flow' : '/api/merge/start_online', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              video_ids: onlineMergeVids,
-              cut_end_seconds: cutSec,
-              mirror,
-              quality: 'original',
-              resolution: 'original',
-              fps: 'original',
-              bitrate: 'auto',
-              codec,
-              gpu: $('mergeGpu')?.value || 'nvenc',
-              color_filter: colorFilter,
-              custom_color_filter: customColorFilter,
-              audio_effect: audioEffect,
-              custom_audio_effect: customAudioEffect,
-              format,
-              output_dir: outputDir,
-              output_name: outputName,
-            })
+            body: JSON.stringify(payload)
           });
 
           const data = await resp.json();
@@ -3065,7 +3417,7 @@
         $('mergeStorageToSection').classList.remove('flex');
       }
       $('mergeCancelBtn').classList.remove('hidden');
-      setMergeButtonLoading(true);
+      setMergeButtonLoading(true, isFullFlow ? 'full_flow' : 'merge_only');
 
       $('mergeProgressBar').style.width = '0%';
       $('mergeProgressPercent').textContent = '0%';
@@ -3073,32 +3425,20 @@
       $('mergeEtaText').textContent = '-';
       $('mergeDurationText').textContent = '00:00 / --:--';
       $('mergeOutputSizeText').textContent = '-';
-      $('mergeStatusMsg').textContent = 'Đang khởi động FFmpeg (Bảo toàn 100% chất lượng gốc)...';
-      $('mergeStatusBadgeText').textContent = 'Đang ghép nối...';
-      $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5';
+      $('mergeStatusMsg').textContent = isFullFlow
+        ? `Đang khởi tạo quy trình trọn gói (${files.length} video): Ghép ➔ CapCut ASR ➔ Dịch TV ➔ Lồng tiếng ➔ Render ➔ Storage.to...`
+        : 'Đang khởi động FFmpeg (Bảo toàn 100% chất lượng gốc)...';
+      $('mergeStatusBadgeText').textContent = isFullFlow ? 'Đang chạy Full Flow...' : 'Đang ghép nối...';
+      $('mergeStatusBadge').className = isFullFlow
+        ? 'px-2.5 py-1 text-xs font-bold rounded-lg bg-pink-100 text-pink-700 flex items-center gap-1.5'
+        : 'px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5';
 
       try {
-        const resp = await fetch('/api/merge/start', {
+        payload.files = files;
+        const resp = await fetch(isFullFlow ? '/api/merge/start_full_flow' : '/api/merge/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            files,
-            cut_end_seconds: cutSec,
-            mirror,
-            quality: 'original',
-            resolution: 'original',
-            fps: 'original',
-            bitrate: 'auto',
-            codec,
-            gpu: $('mergeGpu')?.value || 'nvenc',
-            color_filter: colorFilter,
-            custom_color_filter: customColorFilter,
-            audio_effect: audioEffect,
-            custom_audio_effect: customAudioEffect,
-            format,
-            output_dir: outputDir,
-            output_name: outputName,
-          })
+          body: JSON.stringify(payload)
         });
 
         const data = await resp.json();
@@ -3137,12 +3477,32 @@
       $('mergeEtaText').textContent = st.eta || '-';
       $('mergeDurationText').textContent = `${st.current_duration_str || '00:00'} / ${st.total_duration_str || '--:--'}`;
       $('mergeOutputSizeText').textContent = st.output_size_str || '-';
-      $('mergeStatusMsg').textContent = st.message || 'Đang xử lý...';
+
+      let phasePrefix = '';
+      if (st.phase) {
+        phasePrefix = `[${st.phase}] `;
+      }
+      $('mergeStatusMsg').textContent = phasePrefix + (st.message || 'Đang xử lý...');
+
+      if (st.status === 'running') {
+        if (st.render_progress !== undefined && st.render_progress !== null) {
+          const rPct = parseFloat(st.render_progress);
+          const spdText = st.speed && st.speed !== '-' ? ` • ${st.speed}` : '';
+          $('mergeStatusBadgeText').textContent = `Render Dubbing: ${rPct.toFixed(1)}%${spdText}`;
+          $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-purple-100 text-purple-700 flex items-center gap-1.5 animate-pulse';
+        } else if (st.phase) {
+          $('mergeStatusBadgeText').textContent = st.phase;
+          $('mergeStatusBadge').className = 'px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-700 flex items-center gap-1.5';
+        }
+      }
 
       if (st.status === 'done') {
         stopMergeTracking();
         currentMergeTaskId = null;
         lastResultFilePath = st.output_path || '';
+        lastDubbedVideoPath = st.dubbed_video_path || '';
+        lastDubbedVideoUrl = st.dubbed_video_url || '';
+
         $('mergeProgressBar').style.width = '100%';
         $('mergeProgressPercent').textContent = '100%';
         $('mergeStatusBadgeText').textContent = 'Hoàn tất!';
@@ -3152,31 +3512,104 @@
         $('mergeDoneActions').classList.remove('hidden');
         $('mergeDoneActions').classList.add('flex');
 
-        // Display storage.to links if available
-        if (st.video_url || st.srt_url) {
-          if ($('mergeStorageToSection')) {
-            $('mergeStorageToSection').classList.remove('hidden');
-            $('mergeStorageToSection').classList.add('flex');
-          }
+        // Play Dubbed Result button
+        if (lastDubbedVideoPath || lastDubbedVideoUrl) {
+          $('mergePlayDubbedResultBtn')?.classList.remove('hidden');
+          $('mergePlayDubbedResultBtn')?.classList.add('flex');
+          $('mergePlayDubbedResultBtn').onclick = () => {
+            const vidUrl = lastDubbedVideoPath
+              ? `/api/video_file?path=${encodeURIComponent(lastDubbedVideoPath)}`
+              : lastDubbedVideoUrl;
+            openVideoModal({
+              title: 'Video Lồng Tiếng Hoàn Chỉnh (VieNeu-TTS)',
+              url: vidUrl,
+              meta: {
+                duration: $('mergeDurationText')?.textContent || '',
+                size: st.output_size_str || ''
+              }
+            });
+          };
+        } else {
+          $('mergePlayDubbedResultBtn')?.classList.add('hidden');
+          $('mergePlayDubbedResultBtn')?.classList.remove('flex');
+        }
+
+        // Display all 5 storage.to assets if available
+        const hasStorageUrls = !!(st.video_url || st.srt_url || st.translated_srt_url || st.dubbed_audio_url || st.dubbed_video_url);
+        if (hasStorageUrls && $('mergeStorageToSection')) {
+          $('mergeStorageToSection').classList.remove('hidden');
+          $('mergeStorageToSection').classList.add('flex');
+
+          // 1. Original Merged Video Row
           if (st.video_url && $('mergeVideoUrlRow')) {
             $('mergeVideoUrlRow').classList.remove('hidden');
             $('mergeVideoUrlRow').classList.add('flex');
             $('mergeVideoUrlLink').textContent = st.video_url;
             $('mergeVideoUrlLink').href = st.video_url;
             $('mergeOpenVideoUrlBtn').href = st.video_url;
-            $('mergeCopyVideoUrlBtn').onclick = () => copyToClipboard(st.video_url, 'Đã sao chép link video storage.to');
+            $('mergeCopyVideoUrlBtn').onclick = () => copyToClipboard(st.video_url, 'Đã sao chép link video gốc storage.to');
           }
+
+          // 2. Original Subtitle SRT Row
           if (st.srt_url && $('mergeSrtUrlRow')) {
             $('mergeSrtUrlRow').classList.remove('hidden');
             $('mergeSrtUrlRow').classList.add('flex');
             $('mergeSrtUrlLink').textContent = st.srt_url;
             $('mergeSrtUrlLink').href = st.srt_url;
             $('mergeOpenSrtUrlBtn').href = st.srt_url;
-            $('mergeCopySrtUrlBtn').onclick = () => copyToClipboard(st.srt_url, 'Đã sao chép link phụ đề storage.to');
+            $('mergeCopySrtUrlBtn').onclick = () => copyToClipboard(st.srt_url, 'Đã sao chép link phụ đề gốc SRT');
+          }
+
+          // 3. Translated Vietnamese SRT Row
+          if (st.translated_srt_url && $('mergeViSrtUrlRow')) {
+            $('mergeViSrtUrlRow').classList.remove('hidden');
+            $('mergeViSrtUrlRow').classList.add('flex');
+            $('mergeViSrtUrlLink').textContent = st.translated_srt_url;
+            $('mergeViSrtUrlLink').href = st.translated_srt_url;
+            $('mergeOpenViSrtUrlBtn').href = st.translated_srt_url;
+            $('mergeCopyViSrtUrlBtn').onclick = () => copyToClipboard(st.translated_srt_url, 'Đã sao chép link phụ đề Tiếng Việt SRT');
+          }
+
+          // 4. Dubbed Audio MP3 Row
+          if (st.dubbed_audio_url && $('mergeDubAudioUrlRow')) {
+            $('mergeDubAudioUrlRow').classList.remove('hidden');
+            $('mergeDubAudioUrlRow').classList.add('flex');
+            $('mergeDubAudioUrlLink').textContent = st.dubbed_audio_url;
+            $('mergeDubAudioUrlLink').href = st.dubbed_audio_url;
+            $('mergeOpenDubAudioUrlBtn').href = st.dubbed_audio_url;
+            $('mergeCopyDubAudioUrlBtn').onclick = () => copyToClipboard(st.dubbed_audio_url, 'Đã sao chép link audio thuyết minh MP3');
+          }
+
+          // 5. Final Dubbed Video MP4 Row
+          if (st.dubbed_video_url && $('mergeDubVideoUrlRow')) {
+            $('mergeDubVideoUrlRow').classList.remove('hidden');
+            $('mergeDubVideoUrlRow').classList.add('flex');
+            $('mergeDubVideoUrlLink').textContent = st.dubbed_video_url;
+            $('mergeDubVideoUrlLink').href = st.dubbed_video_url;
+            $('mergeOpenDubVideoUrlBtn').href = st.dubbed_video_url;
+            $('mergeCopyDubVideoUrlBtn').onclick = () => copyToClipboard(st.dubbed_video_url, 'Đã sao chép link video lồng tiếng storage.to');
+          }
+
+          // Copy All Storage.to URLs button
+          if ($('mergeCopyAllStorageUrlsBtn')) {
+            $('mergeCopyAllStorageUrlsBtn').onclick = () => {
+              const lines = [];
+              if (st.dubbed_video_url) lines.push(`[Video Lồng Tiếng]: ${st.dubbed_video_url}`);
+              if (st.video_url) lines.push(`[Video Gốc]: ${st.video_url}`);
+              if (st.dubbed_audio_url) lines.push(`[Audio Dubbing]: ${st.dubbed_audio_url}`);
+              if (st.translated_srt_url) lines.push(`[Phụ Đề Tiếng Việt]: ${st.translated_srt_url}`);
+              if (st.srt_url) lines.push(`[Phụ Đề Gốc]: ${st.srt_url}`);
+              if (lines.length > 0) {
+                copyToClipboard(lines.join('\n'), 'Đã sao chép tất cả link storage.to vào clipboard!');
+              }
+            };
           }
         }
 
-        toast(`Ghép thành công ${st.file_count || ''} tập video!`, 'success');
+        const successMsg = st.dubbed_video_url || st.dubbed_video_path
+          ? `Quy trình ghép & lồng tiếng hoàn tất xuất sắc!`
+          : `Ghép thành công ${st.file_count || ''} tập video!`;
+        toast(successMsg, 'success');
 
         // Refresh video list in modal
         fetchMergeVideosList($('mergeDirInput').value.trim());
@@ -3270,8 +3703,9 @@
     }
 
     // Merge Modal Event Bindings
-    if ($('openMergeModalBtn')) $('openMergeModalBtn').onclick = openMergeModal;
-    if ($('openMergeModalHeaderBtn')) $('openMergeModalHeaderBtn').onclick = openMergeModal;
+    if ($('openMergeModalBtn')) $('openMergeModalBtn').onclick = () => openMergeModal({ fullFlow: false });
+    if ($('openMergeModalHeaderBtn')) $('openMergeModalHeaderBtn').onclick = () => openMergeModal({ fullFlow: false });
+    if ($('openFullFlowModalBtn')) $('openFullFlowModalBtn').onclick = () => openMergeModal({ fullFlow: true });
     if ($('closeMergeModalBtn')) $('closeMergeModalBtn').onclick = closeMergeModal;
     if ($('mergeCloseBtn')) $('mergeCloseBtn').onclick = closeMergeModal;
     if ($('mergeModal')) {
@@ -3419,7 +3853,11 @@
     }
 
     if ($('mergeStartBtn')) {
-      $('mergeStartBtn').onclick = startVideoMerge;
+      $('mergeStartBtn').onclick = () => startVideoMerge(false);
+    }
+
+    if ($('mergeFullFlowBtn')) {
+      $('mergeFullFlowBtn').onclick = () => startVideoMerge(true);
     }
 
     if ($('mergeCancelBtn')) {

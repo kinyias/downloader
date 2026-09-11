@@ -29,6 +29,7 @@ import time
 import math
 import shutil
 import tempfile
+import threading
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Callable
@@ -1070,6 +1071,139 @@ def build_full_dubbed_audio(
             pass
 
 
+def _format_render_time(sec: float) -> str:
+    """Format duration in seconds into MM:SS or HH:MM:SS."""
+    if not sec or sec <= 0:
+        return "00:00"
+    s = int(round(sec))
+    hrs = s // 3600
+    mins = (s % 3600) // 60
+    rem_s = s % 60
+    if hrs > 0:
+        return f"{hrs:02d}:{mins:02d}:{rem_s:02d}"
+    return f"{mins:02d}:{rem_s:02d}"
+
+
+def _run_ffmpeg_render_with_progress(
+    cmd: List[str],
+    total_duration: float,
+    on_progress: Optional[Callable[..., None]] = None,
+) -> Tuple[int, str]:
+    """Execute FFmpeg render command with real-time percentage, speed (x), and ETA tracking."""
+    startupinfo = None
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+
+    # Inject progress pipe if not present
+    cmd_with_prog = list(cmd)
+    if "-progress" not in cmd_with_prog:
+        cmd_with_prog[1:1] = ["-progress", "pipe:1", "-nostats"]
+
+    proc = subprocess.Popen(
+        cmd_with_prog,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+        startupinfo=startupinfo,
+    )
+
+    stderr_lines: List[str] = []
+    def _read_stderr():
+        try:
+            for s_line in proc.stderr:
+                if s_line:
+                    stderr_lines.append(s_line.strip())
+                    if len(stderr_lines) > 50:
+                        stderr_lines.pop(0)
+        except Exception:
+            pass
+
+    stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+    stderr_thread.start()
+
+    last_update_time = time.time()
+    cur_sec = 0.0
+    speed_str = "-"
+    eta_str = "-"
+
+    def _notify(pct_val: float, is_final: bool = False):
+        if not on_progress:
+            return
+        cur_d_str = _format_render_time(cur_sec)
+        tot_d_str = _format_render_time(total_duration)
+        msg = f"Đang render video lồng tiếng ({pct_val:.1f}% - {speed_str})..." if not is_final else "Render video lồng tiếng hoàn tất 100%!"
+        try:
+            on_progress(
+                pct=round(pct_val, 1),
+                msg=msg,
+                speed=speed_str,
+                eta=eta_str,
+                current_duration_str=cur_d_str,
+                total_duration_str=tot_d_str,
+                raw_pct=round(pct_val, 1),
+            )
+        except TypeError:
+            try:
+                on_progress(round(pct_val, 1), msg, speed_str, eta_str)
+            except TypeError:
+                try:
+                    on_progress(round(pct_val, 1), msg)
+                except TypeError:
+                    on_progress(round(pct_val, 1))
+
+    while True:
+        line = proc.stdout.readline()
+        if not line and proc.poll() is not None:
+            break
+
+        line_str = line.strip()
+        if not line_str or "=" not in line_str:
+            continue
+
+        k, v = line_str.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+
+        if k == "out_time_us":
+            try:
+                out_us = int(v)
+                cur_sec = min(total_duration, max(0.0, out_us / 1000000.0))
+                pct = min(99.5, max(0.0, (cur_sec / total_duration) * 100.0)) if total_duration > 0 else 50.0
+                now = time.time()
+                if now - last_update_time >= 0.25:
+                    last_update_time = now
+                    _notify(pct)
+            except Exception:
+                pass
+        elif k == "speed":
+            raw_spd = v.replace("x", "").strip()
+            try:
+                speed_val = float(raw_spd)
+                if speed_val > 0:
+                    speed_str = f"{speed_val:.1f}x"
+                    rem_sec = max(0.0, (total_duration - cur_sec) / speed_val)
+                    eta_str = f"{int(rem_sec)}s"
+                else:
+                    speed_str = v
+            except Exception:
+                speed_str = v
+        elif k == "progress" and v == "end":
+            break
+
+    proc.wait()
+    stderr_thread.join(timeout=1.0)
+    err_text = "\n".join(stderr_lines)
+
+    if proc.returncode == 0:
+        _notify(100.0, is_final=True)
+
+    return proc.returncode, err_text
+
+
 def render_dubbed_video(
     video_path: Path | str,
     dubbed_audio_path: Path | str,
@@ -1078,7 +1212,7 @@ def render_dubbed_video(
     dub_volume: float = 3.0,
     pitch_down_pct: float = 5.0,
     enable_periodic_mute: bool = True,
-    on_progress: Optional[Callable[[float, str], None]] = None,
+    on_progress: Optional[Callable[..., None]] = None,
 ) -> Path:
     """
     Render final dubbed video by merging video with dubbed audio track:
@@ -1104,12 +1238,29 @@ def render_dubbed_video(
     if not in_a.exists():
         raise FileNotFoundError(f"Dubbed audio file not found: {in_a}")
 
+    total_dur = get_audio_duration_ffprobe(in_v)
+    if total_dur <= 0:
+        total_dur = get_audio_duration_ffprobe(in_a)
+    if total_dur <= 0:
+        total_dur = 1.0
+
     _log(
         f"Đang render video lồng tiếng ({out_v.name}) [Âm dubbing: {dub_volume:.1f}x (chuẩn 48kHz, giữ nguyên cao độ tự nhiên), "
         f"Âm nền video gốc: {bg_volume:.2f}x (pitch down {pitch_down_pct}%, mute định kỳ 0.1s/0.9s: {enable_periodic_mute})]..."
     )
     if on_progress:
-        on_progress(5, f"Bắt đầu render video lồng tiếng: {out_v.name}...")
+        try:
+            on_progress(
+                pct=1.0,
+                msg=f"Bắt đầu render video lồng tiếng: {out_v.name}...",
+                speed="-",
+                eta="-",
+                current_duration_str="00:00",
+                total_duration_str=_format_render_time(total_dur),
+                raw_pct=1.0,
+            )
+        except TypeError:
+            on_progress(1.0, f"Bắt đầu render video lồng tiếng: {out_v.name}...")
 
     has_pitch_down = float(pitch_down_pct or 0.0) > 0.01
     pitch_ratio = max(0.8, min(1.0, 1.0 - (pitch_down_pct / 100.0))) if has_pitch_down else 1.0
@@ -1181,9 +1332,9 @@ def render_dubbed_video(
         str(out_v)
     ]
 
-    res = subprocess.run(cmd_rubberband, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if res.returncode != 0:
-        _log(f"Rubberband filter không khả dụng hoặc gặp lỗi ({res.stderr[:100]}). Thử fallback filter...")
+    ret, err_rb = _run_ffmpeg_render_with_progress(cmd_rubberband, total_dur, on_progress)
+    if ret != 0:
+        _log(f"Rubberband filter không khả dụng hoặc gặp lỗi ({err_rb[:100]}). Thử fallback filter...")
         cmd_fallback = [
             ffmpeg, "-y",
             "-i", str(in_v),
@@ -1197,12 +1348,23 @@ def render_dubbed_video(
             "-ar", "48000",
             str(out_v)
         ]
-        res_fb = subprocess.run(cmd_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if res_fb.returncode != 0:
-            raise RuntimeError(f"FFmpeg render video lồng tiếng thất bại: {res_fb.stderr}")
+        ret_fb, err_fb = _run_ffmpeg_render_with_progress(cmd_fallback, total_dur, on_progress)
+        if ret_fb != 0:
+            raise RuntimeError(f"FFmpeg render video lồng tiếng thất bại: {err_fb}")
 
     _log(f"✅ Render ghép video lồng tiếng hoàn tất thành công: {out_v}")
     if on_progress:
-        on_progress(100, "Render video lồng tiếng hoàn tất 100%!")
+        try:
+            on_progress(
+                pct=100.0,
+                msg="Render video lồng tiếng hoàn tất 100%!",
+                speed="-",
+                eta="0s",
+                current_duration_str=_format_render_time(total_dur),
+                total_duration_str=_format_render_time(total_dur),
+                raw_pct=100.0,
+            )
+        except TypeError:
+            on_progress(100.0, "Render video lồng tiếng hoàn tất 100%!")
 
     return out_v

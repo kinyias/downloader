@@ -688,70 +688,28 @@ def api_merge_detect_gpu():
     return jsonify({"ok": True, **info})
 
 
-@app.route("/api/merge/start", methods=["POST"])
-def api_merge_start():
-    """Start background video merge task."""
-    payload = request.get_json(silent=True) or {}
-    files = payload.get("files") or []
-    if not isinstance(files, list) or not files:
-        return jsonify({"error": "Danh sách tệp video 'files' không được để trống"}), 400
+def _parse_merge_options(payload: dict, default_full_flow: bool = False) -> dict:
+    """Parse merge & full-flow pipeline options with explicit mode detection."""
+    full_flow_val = payload.get("full_flow")
+    pipeline_mode = str(payload.get("pipeline_mode", "")).strip().lower()
 
-    options = {
-        "cut_end_seconds": float(payload.get("cut_end_seconds") or 0.0),
-        "mirror": payload.get("mirror") in (True, "true", "True", "1", 1, "on"),
-        "quality": str(payload.get("quality", "original")).strip(),
-        "resolution": str(payload.get("resolution", "original")).strip(),
-        "custom_resolution": str(payload.get("custom_resolution", "")).strip(),
-        "fps": str(payload.get("fps", "original")).strip(),
-        "bitrate": str(payload.get("bitrate", "auto")).strip(),
-        "custom_bitrate": str(payload.get("custom_bitrate", "")).strip(),
-        "codec": str(payload.get("codec", "h264")).strip(),
-        "gpu": str(payload.get("gpu", "nvenc")).strip(),
-        "color_filter": str(payload.get("color_filter", "none")).strip(),
-        "custom_color_filter": str(payload.get("custom_color_filter", "")).strip(),
-        "audio_effect": str(payload.get("audio_effect", "none")).strip(),
-        "custom_audio_effect": str(payload.get("custom_audio_effect", "")).strip(),
-        "format": str(payload.get("format", "mp4")).strip(),
-        "output_dir": str(payload.get("output_dir", "")).strip(),
-        "output_name": str(payload.get("output_name", "")).strip(),
-        "upload_to_storage": payload.get("upload_to_storage", True) in (True, "true", "True", 1, "1", "on"),
-        "generate_subtitles": payload.get("generate_subtitles", True) in (True, "true", "True", 1, "1", "on"),
-        "translate_subtitles": payload.get("translate_subtitles", True) in (True, "true", "True", 1, "1", "on"),
-        "translate_prompt": str(payload.get("translate_prompt") or payload.get("prompt") or "ai_tong_hop_thong_minh").strip(),
-        "custom_endpoint": str(payload.get("custom_endpoint") or payload.get("endpoint") or "").strip(),
-        "custom_api_key": str(payload.get("custom_api_key") or payload.get("api_key") or payload.get("apikey") or "").strip(),
-        "translate_model": str(payload.get("translate_model") or payload.get("model") or "").strip(),
-        "storage_token": str(payload.get("storage_token", "")).strip(),
-        "capcut_tdid": str(payload.get("capcut_tdid", "")).strip(),
-        "source_lang": str(payload.get("source_lang", "auto")).strip(),
-        "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
-        "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
-        "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
-        "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.35),
-        "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.3),
-        "video_speed": float(payload.get("video_speed") or payload.get("speed") or 0.9),
-        "bg_volume": float(payload.get("bg_volume") if payload.get("bg_volume") is not None else payload.get("dub_bg_volume", 0.1)),
-        "dub_volume": float(payload.get("dub_volume") if payload.get("dub_volume") is not None else payload.get("dubbing_volume", 3.0)),
-        "dub_pitch_down_pct": float(payload.get("dub_pitch_down_pct") if payload.get("dub_pitch_down_pct") is not None else 5.0),
-        "enable_periodic_mute": payload.get("enable_periodic_mute", True) in (True, "true", "True", 1, "1", "on"),
-    }
+    if full_flow_val is True or pipeline_mode == "full_flow" or default_full_flow:
+        upload_to_storage = payload.get("upload_to_storage", True) in (True, "true", "True", 1, "1", "on")
+        generate_subtitles = True
+        translate_subtitles = True
+        dubbing = True
+    elif full_flow_val is False or pipeline_mode == "merge_only":
+        upload_to_storage = payload.get("upload_to_storage", False) in (True, "true", "True", 1, "1", "on")
+        generate_subtitles = False
+        translate_subtitles = False
+        dubbing = False
+    else:
+        upload_to_storage = payload.get("upload_to_storage", True) in (True, "true", "True", 1, "1", "on")
+        generate_subtitles = payload.get("generate_subtitles", True) in (True, "true", "True", 1, "1", "on")
+        translate_subtitles = payload.get("translate_subtitles", True) in (True, "true", "True", 1, "1", "on")
+        dubbing = payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on")
 
-    try:
-        task_id = video_service.start_merge_task(files, options)
-        return jsonify({"ok": True, "task_id": task_id})
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/merge/start_online", methods=["POST"])
-def api_merge_start_online():
-    """Start background online video merge task without local episode files."""
-    payload = request.get_json(silent=True) or {}
-    video_ids = payload.get("video_ids") or payload.get("vids") or []
-    if not isinstance(video_ids, list) or not video_ids:
-        return jsonify({"error": "Danh sách mã video 'video_ids' không được để trống"}), 400
-
-    options = {
+    return {
         "concurrency": int(payload.get("concurrency") or payload.get("threads") or payload.get("workers") or 5),
         "cut_end_seconds": float(payload.get("cut_end_seconds") or 0.0),
         "mirror": payload.get("mirror") in (True, "true", "True", "1", 1, "on"),
@@ -770,9 +728,9 @@ def api_merge_start_online():
         "format": str(payload.get("format", "mp4")).strip(),
         "output_dir": str(payload.get("output_dir", "")).strip(),
         "output_name": str(payload.get("output_name", "")).strip(),
-        "upload_to_storage": payload.get("upload_to_storage", True) in (True, "true", "True", 1, "1", "on"),
-        "generate_subtitles": payload.get("generate_subtitles", True) in (True, "true", "True", 1, "1", "on"),
-        "translate_subtitles": payload.get("translate_subtitles", True) in (True, "true", "True", 1, "1", "on"),
+        "upload_to_storage": upload_to_storage,
+        "generate_subtitles": generate_subtitles,
+        "translate_subtitles": translate_subtitles,
         "translate_prompt": str(payload.get("translate_prompt") or payload.get("prompt") or "ai_tong_hop_thong_minh").strip(),
         "custom_endpoint": str(payload.get("custom_endpoint") or payload.get("endpoint") or "").strip(),
         "custom_api_key": str(payload.get("custom_api_key") or payload.get("api_key") or payload.get("apikey") or "").strip(),
@@ -780,7 +738,7 @@ def api_merge_start_online():
         "storage_token": str(payload.get("storage_token", "")).strip(),
         "capcut_tdid": str(payload.get("capcut_tdid", "")).strip(),
         "source_lang": str(payload.get("source_lang", "auto")).strip(),
-        "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
+        "dubbing": dubbing,
         "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
         "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
         "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.35),
@@ -792,11 +750,65 @@ def api_merge_start_online():
         "enable_periodic_mute": payload.get("enable_periodic_mute", True) in (True, "true", "True", 1, "1", "on"),
     }
 
+
+@app.route("/api/merge/start", methods=["POST"])
+def api_merge_start():
+    """Start background video merge task."""
+    payload = request.get_json(silent=True) or {}
+    files = payload.get("files") or []
+    if not isinstance(files, list) or not files:
+        return jsonify({"error": "Danh sách tệp video 'files' không được để trống"}), 400
+
+    options = _parse_merge_options(payload)
+    try:
+        task_id = video_service.start_merge_task(files, options)
+        return jsonify({"ok": True, "task_id": task_id})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/merge/start_online", methods=["POST"])
+def api_merge_start_online():
+    """Start background online video merge task without local episode files."""
+    payload = request.get_json(silent=True) or {}
+    video_ids = payload.get("video_ids") or payload.get("vids") or []
+    if not isinstance(video_ids, list) or not video_ids:
+        return jsonify({"error": "Danh sách mã video 'video_ids' không được để trống"}), 400
+
+    options = _parse_merge_options(payload)
     try:
         task_id = video_service.start_online_merge_task(video_ids, options)
         return jsonify({"ok": True, "task_id": task_id})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/merge/start_full_flow", methods=["POST"])
+def api_merge_start_full_flow():
+    """
+    Dedicated endpoint for Full Flow pipeline:
+    Ghép video -> CapCut ASR -> Dịch phụ đề -> Lồng tiếng VieNeu-TTS -> Render Video Dubbing -> Upload storage.to
+    Supports either online video_ids or local video files.
+    """
+    payload = request.get_json(silent=True) or {}
+    video_ids = payload.get("video_ids") or payload.get("vids") or []
+    files = payload.get("files") or []
+
+    if not video_ids and not files:
+        return jsonify({"error": "Cần cung cấp danh sách mã video 'video_ids' hoặc tệp video 'files'"}), 400
+
+    options = _parse_merge_options(payload, default_full_flow=True)
+    try:
+        if video_ids:
+            task_id = video_service.start_online_merge_task(video_ids, options)
+            mode = "online"
+        else:
+            task_id = video_service.start_merge_task(files, options)
+            mode = "offline"
+        return jsonify({"ok": True, "task_id": task_id, "mode": mode, "pipeline": "full_flow"})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
 
 
 @app.route("/api/batch_download", methods=["POST"])

@@ -1183,10 +1183,17 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         target_fps = determine_target_fps(probed_infos, fps)
 
         # Determine active features and dynamic phase structure
-        upload_to_storage = options.get("upload_to_storage", True) in (True, "true", "True", 1, "1")
-        generate_subtitles = options.get("generate_subtitles", True) in (True, "true", "True", 1, "1")
-        translate_subtitles = options.get("translate_subtitles", True) in (True, "true", "True", 1, "1") if generate_subtitles else False
-        enable_dubbing = options.get("dubbing", True) in (True, "true", "True", 1, "1") if translate_subtitles else False
+        is_full_flow = options.get("full_flow") in (True, "true", "True", 1, "1") or options.get("pipeline_mode") == "full_flow"
+        if is_full_flow:
+            upload_to_storage = options.get("upload_to_storage", True) in (True, "true", "True", 1, "1")
+            generate_subtitles = True
+            translate_subtitles = True
+            enable_dubbing = True
+        else:
+            upload_to_storage = options.get("upload_to_storage", True) in (True, "true", "True", 1, "1")
+            generate_subtitles = options.get("generate_subtitles", True) in (True, "true", "True", 1, "1")
+            translate_subtitles = options.get("translate_subtitles", True) in (True, "true", "True", 1, "1") if generate_subtitles else False
+            enable_dubbing = options.get("dubbing", True) in (True, "true", "True", 1, "1") if translate_subtitles else False
         storage_api_token = options.get("storage_token") or os.getenv("STORAGE_TO_API_TOKEN")
 
         if enable_dubbing:
@@ -1600,14 +1607,32 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                             )
                                             dest_dubbed_video = output_path.with_name(f"{output_path.stem}_dubbed.mp4")
 
-                                            def _render_vid_cb(pct, msg):
+                                            def _render_vid_cb(*args, **kwargs):
+                                                pct = kwargs.get("pct")
+                                                if pct is None and len(args) > 0:
+                                                    pct = args[0]
+                                                pct = float(pct or 0.0)
+
+                                                speed = kwargs.get("speed") or (args[2] if len(args) > 2 else "-")
+                                                eta = kwargs.get("eta") or (args[3] if len(args) > 3 else "-")
+                                                cur_dur_str = kwargs.get("current_duration_str")
+                                                tot_dur_str = kwargs.get("total_duration_str") or format_duration(total_effective_duration)
+                                                raw_pct = kwargs.get("raw_pct", pct)
+
                                                 scaled_render_p = round(80.0 + (pct / 100.0) * 15.0, 1)
+
+                                                speed_disp = f" (Tốc độ: {speed})" if speed and speed != "-" else ""
+                                                eta_disp = f" - Còn lại: ~{eta}" if eta and eta != "-" else ""
+
                                                 update_task(
                                                     phase=phase_4,
                                                     progress=scaled_render_p,
-                                                    speed="-",
-                                                    eta="-",
-                                                    message=f"[Render Dubbed Video] {msg}",
+                                                    speed=speed,
+                                                    eta=eta,
+                                                    current_duration_str=cur_dur_str or format_duration((pct / 100.0) * total_effective_duration),
+                                                    total_duration_str=tot_dur_str,
+                                                    render_progress=raw_pct,
+                                                    message=f"Đang render video lồng tiếng: {raw_pct:.1f}%{speed_disp}{eta_disp}",
                                                 )
 
                                             vieneu_tts.render_dubbed_video(
