@@ -353,6 +353,8 @@ def print_banner(tunnels: Dict[str, str], port: int, save_dir: Path):
         pass
 
     print(f"\n 💾 Thư mục lưu video: {save_dir}")
+    print(f" ☁️ Nhật ký link storage.to: {save_dir / 'storage_links.txt'}")
+    print(f" 🔗 Xem nhanh link storage: /api/storage_links?format=text")
     print("=" * 70)
     print("  💡 Lưu ý: Nếu đường link Cloudflare báo lỗi 'This site can’t be reached'")
     print("     (do nhà mạng VN chặn DNS trycloudflare), hãy click link Localtunnel/Pinggy ở trên!")

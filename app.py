@@ -978,6 +978,27 @@ def api_merge_cancel():
     return jsonify({"ok": ok, "task_id": task_id})
 
 
+@app.route("/api/storage_links", methods=["GET"])
+def api_storage_links():
+    """Return storage.to links log history. Supports json (default) or plain text format."""
+    format_type = request.args.get("format", "json").strip().lower()
+    raw_content = video_service.get_storage_links_file_content()
+    logs = video_service.get_storage_upload_logs()
+
+    if format_type in ("text", "txt", "plain"):
+        return Response(
+            raw_content or "Chưa có link storage.to nào được ghi nhận.\n",
+            mimetype="text/plain; charset=utf-8",
+        )
+
+    return jsonify({
+        "success": True,
+        "count": len(logs),
+        "links": logs,
+        "raw_text": raw_content,
+    })
+
+
 def _is_colab_or_headless() -> bool:
     """Detect if running in Google Colab, Kaggle, or a headless server."""
     if "google.colab" in sys.modules or os.getenv("COLAB_GPU") is not None or os.getenv("COLAB_RELEASE_TAG") is not None:
@@ -1010,4 +1031,5 @@ if __name__ == "__main__":
         threading.Thread(target=open_browser, daemon=True).start()
 
     print(f"短剧下载工具 开源版: http://127.0.0.1:{port} (host={host})")
+    print(f"☁️ Xem link Storage.to: http://127.0.0.1:{port}/api/storage_links?format=text")
     app.run(host=host, port=port, debug=os.getenv("FLASK_DEBUG", "0") == "1")

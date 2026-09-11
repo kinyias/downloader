@@ -74,6 +74,11 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
           <span id="configIndicator" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
         </button>
+        <div class="h-5 w-px bg-slate-300/80 mx-0.5 hidden sm:block"></div>
+        <button id="openStorageLinksBtn" type="button" title="Xem tất cả link storage.to đã upload" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-pink-500/10 to-purple-500/10 hover:from-pink-500/20 hover:to-purple-500/20 text-pink-700 border border-pink-200 shadow-sm transition-all whitespace-nowrap">
+          <svg class="w-3.5 h-3.5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          <span>Link Storage</span>
+        </button>
       </nav>
     </header>
 
@@ -694,6 +699,53 @@
     </div>
   </div>
 
+  <!-- Storage.to Uploaded Links History Modal -->
+  <div id="storageLinksModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-5">
+    <div class="glass-panel max-w-3xl w-full rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh] border border-white/80 bg-white/95">
+      <!-- Modal Header -->
+      <div class="p-4 sm:p-5 bg-gradient-to-r from-pink-50 via-purple-50/50 to-indigo-50/50 border-b border-pink-100 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-pink-500/30 flex-shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="text-base sm:text-lg font-bold text-slate-800">Lịch Sử Link Storage.to Đã Tải Lên</h2>
+              <span id="storageLinksCountBadge" class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-pink-100 text-pink-700 border border-pink-200">0 link</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">Tất cả link upload đều được lưu vĩnh viễn trong tệp nhật ký <code>storage_links.txt</code></p>
+          </div>
+        </div>
+        <button id="closeStorageLinksModalBtn" class="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Action Toolbar -->
+      <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2 text-xs">
+        <div class="flex items-center gap-2">
+          <button id="refreshStorageLinksBtn" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold flex items-center gap-1.5 shadow-sm transition-all">
+            <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Làm mới
+          </button>
+          <button id="copyAllHistoryLinksBtn" class="px-3 py-1.5 rounded-lg bg-pink-50 border border-pink-200 hover:bg-pink-100 text-pink-700 font-bold flex items-center gap-1.5 shadow-sm transition-all">
+            <svg class="w-3.5 h-3.5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            Sao chép tất cả link
+          </button>
+        </div>
+        <a id="viewRawStorageTxtBtn" href="/api/storage_links?format=text" target="_blank" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold flex items-center gap-1.5 shadow-sm transition-all">
+          <svg class="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          Mở tệp thô (TXT)
+        </a>
+      </div>
+
+      <!-- Links List Container -->
+      <div id="storageLinksList" class="p-4 sm:p-5 overflow-y-auto flex-1 flex flex-col gap-3 min-h-[250px] max-h-[60vh]">
+        <div class="text-center py-10 text-slate-400 text-xs">Đang tải danh sách link storage.to...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Video Merger Dialog Modal -->
   <div id="mergeModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-5">
     <div class="glass-panel max-w-5xl w-full rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col max-h-[92vh] border border-white/80 bg-white/95">
@@ -708,6 +760,10 @@
             <div class="flex items-center gap-2 flex-wrap">
               <h2 class="text-base sm:text-lg font-bold text-slate-800">Ghép Nối Video Đã Tải</h2>
               <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-purple-100 text-purple-700 border border-purple-200">Tối ưu hóa FFmpeg</span>
+              <button type="button" id="mergeViewStorageHistoryBtn" class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-pink-100 hover:bg-pink-200 text-pink-700 border border-pink-200 transition-all flex items-center gap-1">
+                <svg class="w-3 h-3 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                <span>Xem link storage</span>
+              </button>
             </div>
             <p class="text-xs text-slate-500 mt-0.5">Tự động quét danh sách video trong thư mục, hỗ trợ cắt phần kết thúc & tùy chỉnh chuẩn xuất video</p>
           </div>
@@ -3649,6 +3705,80 @@
       }
     }
 
+    function updateMergeStorageSection(st) {
+      if (!st || !$('mergeStorageToSection')) return;
+      const hasStorageUrls = !!(st.video_url || st.srt_url || st.translated_srt_url || st.dubbed_audio_url || st.dubbed_video_url);
+      if (!hasStorageUrls) return;
+
+      $('mergeStorageToSection').classList.remove('hidden');
+      $('mergeStorageToSection').classList.add('flex');
+
+      // 1. Original Merged Video Row
+      if (st.video_url && $('mergeVideoUrlRow')) {
+        $('mergeVideoUrlRow').classList.remove('hidden');
+        $('mergeVideoUrlRow').classList.add('flex');
+        $('mergeVideoUrlLink').textContent = st.video_url;
+        $('mergeVideoUrlLink').href = st.video_url;
+        $('mergeOpenVideoUrlBtn').href = st.video_url;
+        $('mergeCopyVideoUrlBtn').onclick = () => copyToClipboard(st.video_url, 'Đã sao chép link video gốc storage.to');
+      }
+
+      // 2. Original Subtitle SRT Row
+      if (st.srt_url && $('mergeSrtUrlRow')) {
+        $('mergeSrtUrlRow').classList.remove('hidden');
+        $('mergeSrtUrlRow').classList.add('flex');
+        $('mergeSrtUrlLink').textContent = st.srt_url;
+        $('mergeSrtUrlLink').href = st.srt_url;
+        $('mergeOpenSrtUrlBtn').href = st.srt_url;
+        $('mergeCopySrtUrlBtn').onclick = () => copyToClipboard(st.srt_url, 'Đã sao chép link phụ đề gốc SRT');
+      }
+
+      // 3. Translated Vietnamese SRT Row
+      if (st.translated_srt_url && $('mergeViSrtUrlRow')) {
+        $('mergeViSrtUrlRow').classList.remove('hidden');
+        $('mergeViSrtUrlRow').classList.add('flex');
+        $('mergeViSrtUrlLink').textContent = st.translated_srt_url;
+        $('mergeViSrtUrlLink').href = st.translated_srt_url;
+        $('mergeOpenViSrtUrlBtn').href = st.translated_srt_url;
+        $('mergeCopyViSrtUrlBtn').onclick = () => copyToClipboard(st.translated_srt_url, 'Đã sao chép link phụ đề Tiếng Việt SRT');
+      }
+
+      // 4. Dubbed Audio MP3 Row
+      if (st.dubbed_audio_url && $('mergeDubAudioUrlRow')) {
+        $('mergeDubAudioUrlRow').classList.remove('hidden');
+        $('mergeDubAudioUrlRow').classList.add('flex');
+        $('mergeDubAudioUrlLink').textContent = st.dubbed_audio_url;
+        $('mergeDubAudioUrlLink').href = st.dubbed_audio_url;
+        $('mergeOpenDubAudioUrlBtn').href = st.dubbed_audio_url;
+        $('mergeCopyDubAudioUrlBtn').onclick = () => copyToClipboard(st.dubbed_audio_url, 'Đã sao chép link audio thuyết minh MP3');
+      }
+
+      // 5. Final Dubbed Video MP4 Row
+      if (st.dubbed_video_url && $('mergeDubVideoUrlRow')) {
+        $('mergeDubVideoUrlRow').classList.remove('hidden');
+        $('mergeDubVideoUrlRow').classList.add('flex');
+        $('mergeDubVideoUrlLink').textContent = st.dubbed_video_url;
+        $('mergeDubVideoUrlLink').href = st.dubbed_video_url;
+        $('mergeOpenDubVideoUrlBtn').href = st.dubbed_video_url;
+        $('mergeCopyDubVideoUrlBtn').onclick = () => copyToClipboard(st.dubbed_video_url, 'Đã sao chép link video lồng tiếng storage.to');
+      }
+
+      // Copy All Storage.to URLs button
+      if ($('mergeCopyAllStorageUrlsBtn')) {
+        $('mergeCopyAllStorageUrlsBtn').onclick = () => {
+          const lines = [];
+          if (st.dubbed_video_url) lines.push(`[Video Lồng Tiếng]: ${st.dubbed_video_url}`);
+          if (st.video_url) lines.push(`[Video Gốc]: ${st.video_url}`);
+          if (st.dubbed_audio_url) lines.push(`[Audio Dubbing]: ${st.dubbed_audio_url}`);
+          if (st.translated_srt_url) lines.push(`[Phụ Đề Tiếng Việt]: ${st.translated_srt_url}`);
+          if (st.srt_url) lines.push(`[Phụ Đề Gốc]: ${st.srt_url}`);
+          if (lines.length > 0) {
+            copyToClipboard(lines.join('\n'), 'Đã sao chép tất cả link storage.to vào clipboard!');
+          }
+        };
+      }
+    }
+
     function handleMergeStatusUpdate(st) {
       const pct = Math.max(0, Math.min(100, parseFloat(st.progress) || 0));
       $('mergeProgressBar').style.width = `${pct}%`;
@@ -3663,6 +3793,9 @@
         phasePrefix = `[${st.phase}] `;
       }
       $('mergeStatusMsg').textContent = phasePrefix + (st.message || 'Đang xử lý...');
+
+      // Update storage.to links in real-time as soon as each asset finishes uploading
+      updateMergeStorageSection(st);
 
       if (st.status === 'running') {
         if (st.render_progress !== undefined && st.render_progress !== null) {
@@ -3714,77 +3847,8 @@
           $('mergePlayDubbedResultBtn')?.classList.remove('flex');
         }
 
-        // Display all 5 storage.to assets if available
-        const hasStorageUrls = !!(st.video_url || st.srt_url || st.translated_srt_url || st.dubbed_audio_url || st.dubbed_video_url);
-        if (hasStorageUrls && $('mergeStorageToSection')) {
-          $('mergeStorageToSection').classList.remove('hidden');
-          $('mergeStorageToSection').classList.add('flex');
-
-          // 1. Original Merged Video Row
-          if (st.video_url && $('mergeVideoUrlRow')) {
-            $('mergeVideoUrlRow').classList.remove('hidden');
-            $('mergeVideoUrlRow').classList.add('flex');
-            $('mergeVideoUrlLink').textContent = st.video_url;
-            $('mergeVideoUrlLink').href = st.video_url;
-            $('mergeOpenVideoUrlBtn').href = st.video_url;
-            $('mergeCopyVideoUrlBtn').onclick = () => copyToClipboard(st.video_url, 'Đã sao chép link video gốc storage.to');
-          }
-
-          // 2. Original Subtitle SRT Row
-          if (st.srt_url && $('mergeSrtUrlRow')) {
-            $('mergeSrtUrlRow').classList.remove('hidden');
-            $('mergeSrtUrlRow').classList.add('flex');
-            $('mergeSrtUrlLink').textContent = st.srt_url;
-            $('mergeSrtUrlLink').href = st.srt_url;
-            $('mergeOpenSrtUrlBtn').href = st.srt_url;
-            $('mergeCopySrtUrlBtn').onclick = () => copyToClipboard(st.srt_url, 'Đã sao chép link phụ đề gốc SRT');
-          }
-
-          // 3. Translated Vietnamese SRT Row
-          if (st.translated_srt_url && $('mergeViSrtUrlRow')) {
-            $('mergeViSrtUrlRow').classList.remove('hidden');
-            $('mergeViSrtUrlRow').classList.add('flex');
-            $('mergeViSrtUrlLink').textContent = st.translated_srt_url;
-            $('mergeViSrtUrlLink').href = st.translated_srt_url;
-            $('mergeOpenViSrtUrlBtn').href = st.translated_srt_url;
-            $('mergeCopyViSrtUrlBtn').onclick = () => copyToClipboard(st.translated_srt_url, 'Đã sao chép link phụ đề Tiếng Việt SRT');
-          }
-
-          // 4. Dubbed Audio MP3 Row
-          if (st.dubbed_audio_url && $('mergeDubAudioUrlRow')) {
-            $('mergeDubAudioUrlRow').classList.remove('hidden');
-            $('mergeDubAudioUrlRow').classList.add('flex');
-            $('mergeDubAudioUrlLink').textContent = st.dubbed_audio_url;
-            $('mergeDubAudioUrlLink').href = st.dubbed_audio_url;
-            $('mergeOpenDubAudioUrlBtn').href = st.dubbed_audio_url;
-            $('mergeCopyDubAudioUrlBtn').onclick = () => copyToClipboard(st.dubbed_audio_url, 'Đã sao chép link audio thuyết minh MP3');
-          }
-
-          // 5. Final Dubbed Video MP4 Row
-          if (st.dubbed_video_url && $('mergeDubVideoUrlRow')) {
-            $('mergeDubVideoUrlRow').classList.remove('hidden');
-            $('mergeDubVideoUrlRow').classList.add('flex');
-            $('mergeDubVideoUrlLink').textContent = st.dubbed_video_url;
-            $('mergeDubVideoUrlLink').href = st.dubbed_video_url;
-            $('mergeOpenDubVideoUrlBtn').href = st.dubbed_video_url;
-            $('mergeCopyDubVideoUrlBtn').onclick = () => copyToClipboard(st.dubbed_video_url, 'Đã sao chép link video lồng tiếng storage.to');
-          }
-
-          // Copy All Storage.to URLs button
-          if ($('mergeCopyAllStorageUrlsBtn')) {
-            $('mergeCopyAllStorageUrlsBtn').onclick = () => {
-              const lines = [];
-              if (st.dubbed_video_url) lines.push(`[Video Lồng Tiếng]: ${st.dubbed_video_url}`);
-              if (st.video_url) lines.push(`[Video Gốc]: ${st.video_url}`);
-              if (st.dubbed_audio_url) lines.push(`[Audio Dubbing]: ${st.dubbed_audio_url}`);
-              if (st.translated_srt_url) lines.push(`[Phụ Đề Tiếng Việt]: ${st.translated_srt_url}`);
-              if (st.srt_url) lines.push(`[Phụ Đề Gốc]: ${st.srt_url}`);
-              if (lines.length > 0) {
-                copyToClipboard(lines.join('\n'), 'Đã sao chép tất cả link storage.to vào clipboard!');
-              }
-            };
-          }
-        }
+        // Final verification of storage links display
+        updateMergeStorageSection(st);
 
         const successMsg = st.dubbed_video_url || st.dubbed_video_path
           ? `Quy trình ghép & lồng tiếng hoàn tất xuất sắc!`
@@ -3891,6 +3955,95 @@
     if ($('mergeModal')) {
       $('mergeModal').onclick = (e) => {
         if (e.target === $('mergeModal')) closeMergeModal();
+      };
+    }
+
+    // Storage Links History Modal Functions & Bindings
+    let storageHistoryCache = [];
+
+    async function openStorageLinksModal() {
+      const modal = $('storageLinksModal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      await fetchStorageLinksList();
+    }
+
+    function closeStorageLinksModal() {
+      const modal = $('storageLinksModal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    async function fetchStorageLinksList() {
+      const listContainer = $('storageLinksList');
+      if (!listContainer) return;
+      listContainer.innerHTML = '<div class="text-center py-10 text-slate-400 text-xs flex items-center justify-center gap-2"><svg class="w-4 h-4 animate-spin text-pink-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>Đang tải nhật ký storage_links.txt...</span></div>';
+
+      try {
+        const res = await fetch('/api/storage_links?format=json');
+        const data = await res.json();
+        const links = data.links || [];
+        storageHistoryCache = links;
+
+        if ($('storageLinksCountBadge')) {
+          $('storageLinksCountBadge').textContent = `${links.length} link`;
+        }
+
+        if (links.length === 0) {
+          listContainer.innerHTML = '<div class="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">Chưa có link storage.to nào được ghi nhận.<br>Khi quy trình tải lên tệp hoàn tất, link sẽ tự động được lưu lại tại đây.</div>';
+          return;
+        }
+
+        listContainer.innerHTML = links.map(item => `
+          <div class="p-3 bg-white rounded-xl border border-slate-200/90 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-pink-300 transition-all">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-pink-100 text-pink-700 font-mono">${escapeHtml(item.asset_name || 'Tệp')}</span>
+                <span class="text-xs font-semibold text-slate-800 truncate">${escapeHtml(item.filename || 'Tệp')}</span>
+                <span class="text-[10px] text-slate-400 font-mono">(${escapeHtml(item.size_str || '-')})</span>
+              </div>
+              <div class="mt-1 flex items-center gap-2 text-xs">
+                <a href="${item.url}" target="_blank" class="text-pink-600 hover:text-pink-700 hover:underline font-mono text-[11px] truncate select-all font-medium">${item.url}</a>
+              </div>
+              <div class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(item.timestamp || '')}</div>
+            </div>
+            <div class="flex items-center gap-1.5 self-end sm:self-auto flex-shrink-0">
+              <button onclick="copyToClipboard('${item.url}', 'Đã sao chép link')" class="px-2.5 py-1.5 rounded-lg bg-pink-50 hover:bg-pink-100 text-pink-700 text-xs font-semibold flex items-center gap-1 border border-pink-200 transition-all">
+                <svg class="w-3.5 h-3.5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <span>Sao chép</span>
+              </button>
+              <a href="${item.url}" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1 border border-slate-200 transition-all">
+                <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                <span>Mở</span>
+              </a>
+            </div>
+          </div>
+        `).join('');
+
+      } catch (err) {
+        listContainer.innerHTML = `<div class="p-4 text-center text-rose-500 text-xs">Lỗi đọc danh sách: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    if ($('openStorageLinksBtn')) $('openStorageLinksBtn').onclick = openStorageLinksModal;
+    if ($('mergeViewStorageHistoryBtn')) $('mergeViewStorageHistoryBtn').onclick = openStorageLinksModal;
+    if ($('closeStorageLinksModalBtn')) $('closeStorageLinksModalBtn').onclick = closeStorageLinksModal;
+    if ($('refreshStorageLinksBtn')) $('refreshStorageLinksBtn').onclick = fetchStorageLinksList;
+    if ($('copyAllHistoryLinksBtn')) {
+      $('copyAllHistoryLinksBtn').onclick = () => {
+        if (!storageHistoryCache || storageHistoryCache.length === 0) {
+          toast('Chưa có link nào để sao chép', 'warning');
+          return;
+        }
+        const textLines = storageHistoryCache.map(i => `[${i.asset_name}] ${i.filename}: ${i.url}`).join('\n');
+        copyToClipboard(textLines, 'Đã sao chép tất cả link storage.to vào clipboard');
+      };
+    }
+    if ($('storageLinksModal')) {
+      $('storageLinksModal').onclick = (e) => {
+        if (e.target === $('storageLinksModal')) closeStorageLinksModal();
       };
     }
 

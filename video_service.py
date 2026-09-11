@@ -11,6 +11,7 @@ Features:
 """
 
 from collections import Counter
+from datetime import datetime
 import json
 import os
 import re
@@ -21,7 +22,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 
 def get_runtime_base_dir() -> Path:
@@ -112,6 +113,230 @@ def _safe_log(msg: str) -> None:
         tqdm.write(str(msg))
     except Exception:
         print(str(msg), flush=True)
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+STORAGE_UPLOAD_LOGS: List[Dict[str, Any]] = []
+STORAGE_LOGS_LOCK = threading.Lock()
+
+
+def record_storage_upload(
+    asset_name: str,
+    file_path: Union[str, Path],
+    url: str,
+    storage_res: Optional[Dict[str, Any]] = None,
+    output_dir: Optional[Union[str, Path]] = None,
+    task_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Log uploaded storage.to URL immediately to stdout with a clean prominent banner,
+    and persist into storage_links.txt in output_dir (e.g. Google Drive) and project BASE_DIR
+    so users never lose URLs even if their browser/Colab session disconnects mid-way.
+    """
+    if not url:
+        return {}
+
+    p = Path(file_path).resolve()
+    filename = p.name
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Determine file size
+    file_size = 0
+    if p.exists() and p.is_file():
+        try:
+            file_size = p.stat().st_size
+        except Exception:
+            pass
+    if not file_size and storage_res:
+        file_size = int(storage_res.get("size") or 0)
+    size_str = format_size(file_size) if file_size > 0 else (storage_res.get("human_size") if storage_res else "N/A")
+
+    record = {
+        "timestamp": now_str,
+        "task_id": task_id or "",
+        "asset_name": asset_name,
+        "filename": filename,
+        "size_bytes": file_size,
+        "size_str": size_str,
+        "url": url,
+        "file_path": str(p),
+    }
+
+    # 1. Update in-memory log
+    with STORAGE_LOGS_LOCK:
+        STORAGE_UPLOAD_LOGS.append(record)
+        if len(STORAGE_UPLOAD_LOGS) > 1000:
+            del STORAGE_UPLOAD_LOGS[:-1000]
+
+    # 2. Determine target log file paths
+    target_log_files = []
+    base_dir = get_runtime_base_dir()
+    base_log_file = base_dir / "storage_links.txt"
+    target_log_files.append(base_log_file)
+
+    if output_dir:
+        out_log_file = Path(output_dir).resolve() / "storage_links.txt"
+        if out_log_file not in target_log_files:
+            target_log_files.append(out_log_file)
+
+    dl_env = os.getenv("DOWNLOAD_DIR")
+    if dl_env:
+        try:
+            dl_log_file = Path(dl_env).resolve() / "storage_links.txt"
+            if dl_log_file not in target_log_files:
+                target_log_files.append(dl_log_file)
+        except Exception:
+            pass
+
+    # 3. Write to persistent files (append mode)
+    line_to_write = f"[{now_str}] [{asset_name}] {filename} ({size_str}) -> {url}\n"
+    for lf in target_log_files:
+        try:
+            lf.parent.mkdir(parents=True, exist_ok=True)
+            with open(lf, "a", encoding="utf-8") as f:
+                f.write(line_to_write)
+        except Exception as log_err:
+            _safe_log(f"[Warning] Không thể ghi log vào {lf}: {log_err}")
+
+    # 4. Print prominent banner to stdout immediately and flush
+    saved_paths_str = ", ".join(str(f) for f in target_log_files)
+    banner = (
+        f"\n"
+        f"================================================================================\n"
+        f"☁️  [Storage.to] ĐÃ TẢI LÊN THÀNH CÔNG: {asset_name}\n"
+        f"📁  Tệp       : {filename} ({size_str})\n"
+        f"🔗  Link Tải  : {url}\n"
+        f"⏰  Thời Gian : {now_str}\n"
+        f"💾  Đã lưu vào: {saved_paths_str}\n"
+        f"================================================================================\n"
+    )
+    _safe_log(banner)
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+    return record
+
+
+def log_storage_summary(
+    task_id: str,
+    output_name: str,
+    video_url: Optional[str] = None,
+    srt_url: Optional[str] = None,
+    translated_srt_url: Optional[str] = None,
+    dubbed_audio_url: Optional[str] = None,
+    dubbed_video_url: Optional[str] = None,
+    output_dir: Optional[Union[str, Path]] = None,
+) -> None:
+    """Print and persist a final summary block of all uploaded storage.to links for a completed task."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Collect available links
+    items = []
+    if video_url:
+        items.append(("🎬 Video Gốc (MP4)", video_url))
+    if srt_url:
+        items.append(("📝 Phụ Đề Gốc CapCut (SRT)", srt_url))
+    if translated_srt_url:
+        items.append(("🇻🇳 Phụ Đề Tiếng Việt (_vi.srt)", translated_srt_url))
+    if dubbed_audio_url:
+        items.append(("🎙️ Audio Lồng Tiếng (_dubbed.mp3)", dubbed_audio_url))
+    if dubbed_video_url:
+        items.append(("🎬 Video Lồng Tiếng (_dubbed.mp4)", dubbed_video_url))
+
+    if not items:
+        return
+
+    # Determine files to append summary to
+    target_log_files = []
+    base_dir = get_runtime_base_dir()
+    base_log_file = base_dir / "storage_links.txt"
+    target_log_files.append(base_log_file)
+
+    if output_dir:
+        out_log_file = Path(output_dir).resolve() / "storage_links.txt"
+        if out_log_file not in target_log_files:
+            target_log_files.append(out_log_file)
+
+    dl_env = os.getenv("DOWNLOAD_DIR")
+    if dl_env:
+        try:
+            dl_log_file = Path(dl_env).resolve() / "storage_links.txt"
+            if dl_log_file not in target_log_files:
+                target_log_files.append(dl_log_file)
+        except Exception:
+            pass
+
+    # Build summary text block
+    summary_lines = [
+        f"--------------------------------------------------------------------------------",
+        f"🎉 TỔNG KẾT TÁC VỤ: {output_name} (Task: {task_id}) [{now_str}]",
+    ]
+    for label, u in items:
+        summary_lines.append(f"  • {label:<32}: {u}")
+    summary_lines.append(f"--------------------------------------------------------------------------------\n")
+    summary_block = "\n".join(summary_lines)
+
+    for lf in target_log_files:
+        try:
+            lf.parent.mkdir(parents=True, exist_ok=True)
+            with open(lf, "a", encoding="utf-8") as f:
+                f.write(summary_block)
+        except Exception:
+            pass
+
+    # Print summary banner to stdout
+    saved_paths_str = ", ".join(str(f) for f in target_log_files)
+    banner_lines = [
+        f"\n",
+        f"================================================================================",
+        f"🎉 [Storage.to] TỔNG HỢP TẤT CẢ LINK ĐÃ TẢI LÊN CHO: {output_name}",
+        f"⏰ Thời Gian : {now_str}",
+    ]
+    for label, u in items:
+        banner_lines.append(f"🔗 {label:<32}: {u}")
+    banner_lines.append(f"💾 File Nhật Ký: {saved_paths_str}")
+    banner_lines.append(f"================================================================================\n")
+
+    _safe_log("\n".join(banner_lines))
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
+def get_storage_upload_logs(limit: int = 200) -> List[Dict[str, Any]]:
+    """Retrieve in-memory storage upload logs in reverse chronological order."""
+    with STORAGE_LOGS_LOCK:
+        return list(reversed(STORAGE_UPLOAD_LOGS[-limit:]))
+
+
+def get_storage_links_file_content(output_dir: Optional[Union[str, Path]] = None) -> str:
+    """Read full content of storage_links.txt from output_dir, DOWNLOAD_DIR or BASE_DIR."""
+    candidates = []
+    if output_dir:
+        candidates.append(Path(output_dir).resolve() / "storage_links.txt")
+    dl_env = os.getenv("DOWNLOAD_DIR")
+    if dl_env:
+        try:
+            candidates.append(Path(dl_env).resolve() / "storage_links.txt")
+        except Exception:
+            pass
+    candidates.append(get_runtime_base_dir() / "storage_links.txt")
+
+    for p in candidates:
+        if p.exists() and p.is_file():
+            try:
+                return p.read_text(encoding="utf-8")
+            except Exception:
+                pass
+    return ""
 
 
 def natural_sort_key(s: str) -> list:
@@ -1354,6 +1579,14 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                 )
                 video_url = storage_res.get("url")
                 storage_info["video"] = storage_res
+                record_storage_upload(
+                    asset_name="Video Gốc (MP4)",
+                    file_path=output_path,
+                    url=video_url,
+                    storage_res=storage_res,
+                    output_dir=output_dir,
+                    task_id=task_id,
+                )
                 done_v_p = 43.0 if enable_dubbing else (70.0 if generate_subtitles else 100.0)
                 update_task(
                     phase=active_phase,
@@ -1410,6 +1643,14 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                         )
                         srt_url = srt_storage_res.get("url")
                         storage_info["subtitle"] = srt_storage_res
+                        record_storage_upload(
+                            asset_name="Phụ Đề Gốc CapCut (SRT)",
+                            file_path=srt_file,
+                            url=srt_url,
+                            storage_res=srt_storage_res,
+                            output_dir=output_dir,
+                            task_id=task_id,
+                        )
                         update_task(
                             phase=phase_2,
                             srt_url=srt_url,
@@ -1471,6 +1712,14 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     )
                                     translated_srt_url = vi_srt_storage_res.get("url")
                                     storage_info["translated_subtitle"] = vi_srt_storage_res
+                                    record_storage_upload(
+                                        asset_name="Phụ Đề Dịch Tiếng Việt (SRT)",
+                                        file_path=translated_file,
+                                        url=translated_srt_url,
+                                        storage_res=vi_srt_storage_res,
+                                        output_dir=output_dir,
+                                        task_id=task_id,
+                                    )
                                     phase2_final_p = 55.0 if enable_dubbing else 100.0
                                     update_task(
                                         phase=phase_2,
@@ -1586,6 +1835,14 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                                 )
                                                 dubbed_audio_url = dub_audio_storage_res.get("url")
                                                 storage_info["dubbed_audio"] = dub_audio_storage_res
+                                                record_storage_upload(
+                                                    asset_name="Audio Lồng Tiếng VieNeu-TTS (MP3)",
+                                                    file_path=dest_dubbed_audio,
+                                                    url=dubbed_audio_url,
+                                                    storage_res=dub_audio_storage_res,
+                                                    output_dir=output_dir,
+                                                    task_id=task_id,
+                                                )
                                                 update_task(
                                                     phase=phase_3,
                                                     progress=80.0,
@@ -1675,6 +1932,14 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                                         )
                                                         dubbed_video_url = dub_vid_storage_res.get("url")
                                                         storage_info["dubbed_video"] = dub_vid_storage_res
+                                                        record_storage_upload(
+                                                            asset_name="Video Lồng Tiếng VieNeu-TTS (MP4)",
+                                                            file_path=dest_dubbed_video,
+                                                            url=dubbed_video_url,
+                                                            storage_res=dub_vid_storage_res,
+                                                            output_dir=output_dir,
+                                                            task_id=task_id,
+                                                        )
                                                         update_task(
                                                             phase=phase_4,
                                                             progress=99.0,
@@ -1730,6 +1995,18 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         with MERGE_LOCK:
             LAST_MERGE_RESULT = dict(result_dict)
             options.update(result_dict)
+
+        # Log & persist summary recap of all uploaded links
+        log_storage_summary(
+            task_id=task_id,
+            output_name=output_path.name,
+            video_url=video_url,
+            srt_url=srt_url,
+            translated_srt_url=translated_srt_url,
+            dubbed_audio_url=dubbed_audio_url,
+            dubbed_video_url=dubbed_video_url,
+            output_dir=output_dir,
+        )
 
         final_phase = phase_4 if enable_dubbing else (phase_2 if generate_subtitles else phase_1)
         update_task(
