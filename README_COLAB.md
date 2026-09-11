@@ -16,9 +16,18 @@ Nhấn vào nút dưới đây để mở Notebook:
 
 ---
 
-## 📋 Các Lệnh CLI Chính
+## 📋 Cách Sử Dụng
 
-### 1. Mở Menu Tương Tác (Dễ dùng nhất)
+### 🌐 1. Khởi Động Giao Diện Web Trực Quan (Web UI với Link Công Khai)
+Chạy lệnh sau để khởi động Web UI đầy đủ tính năng và nhận link HTTPS công khai (Cloudflare Tunnel / Localtunnel):
+```bash
+python colab_runner.py --tunnel auto --port 5000
+```
+Hệ thống sẽ tự động in ra đường link công khai (ví dụ: `https://xxx.trycloudflare.com`) để bạn bấm vào mở giao diện Web trên trình duyệt máy tính hoặc điện thoại.
+
+---
+
+### 💻 2. Mở Menu Tương Tác Dòng Lệnh (CLI Interactive Menu)
 ```bash
 python cli.py
 ```

@@ -33,6 +33,7 @@ import time
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, request, send_from_directory, send_file, Response
+from config import DEFAULT_SETTINGS
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -167,11 +168,20 @@ def get_config():
     device_id = os.getenv("DUANJU_DEVICE_ID") or str(cfg.get("device_id", ""))
     install_id = os.getenv("DUANJU_INSTALL_ID") or str(cfg.get("install_id", ""))
     platform = os.getenv("DUANJU_PLATFORM") or str(cfg.get("platform", "android"))
+
+    custom_endpoint = str(cfg.get("custom_endpoint") or os.getenv("CUSTOM_API_ENDPOINT") or DEFAULT_SETTINGS.get("customApiEndpoint", ""))
+    raw_api_key = str(cfg.get("custom_api_key") or os.getenv("CUSTOM_API_KEY") or DEFAULT_SETTINGS.get("customApiKey", ""))
+    custom_model = str(cfg.get("custom_model") or os.getenv("CUSTOM_MODEL") or DEFAULT_SETTINGS.get("customModel", "gemini-lite"))
+
     return jsonify({
         "configured": bool(device_id and install_id),
         "device_id_masked": mask_value(device_id),
         "install_id_masked": mask_value(install_id),
         "platform": platform or "android",
+        "custom_endpoint": custom_endpoint,
+        "custom_api_key_masked": mask_value(raw_api_key),
+        "custom_api_key_set": bool(raw_api_key),
+        "custom_model": custom_model,
         "config_path": str(get_config_path()),
     })
 
@@ -179,20 +189,40 @@ def get_config():
 @app.route("/api/config", methods=["POST"])
 def save_config():
     data = request.get_json(silent=True) or {}
+    cfg = read_local_config()
+
     device_id = str(data.get("device_id", "")).strip()
     install_id = str(data.get("install_id", "")).strip()
-    platform = str(data.get("platform", "android")).strip() or "android"
+    platform = str(data.get("platform", "")).strip()
 
-    if not device_id or not install_id:
-        return jsonify({"error": "device_id and install_id are required"}), 400
+    if device_id:
+        cfg["device_id"] = device_id
+    if install_id:
+        cfg["install_id"] = install_id
+    if platform:
+        cfg["platform"] = platform
 
-    cfg = {"device_id": device_id, "install_id": install_id, "platform": platform}
+    if "custom_endpoint" in data:
+        cfg["custom_endpoint"] = str(data.get("custom_endpoint", "")).strip()
+    if "custom_api_key" in data:
+        new_key = str(data.get("custom_api_key", "")).strip()
+        if new_key and not ("***" in new_key):
+            cfg["custom_api_key"] = new_key
+    if "custom_model" in data:
+        cfg["custom_model"] = str(data.get("custom_model", "")).strip()
+
     path = get_config_path()
     path.write_text(
         json.dumps(cfg, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    return jsonify({"ok": True, "config_path": str(path)})
+    return jsonify({
+        "ok": True,
+        "config_path": str(path),
+        "custom_endpoint": cfg.get("custom_endpoint", ""),
+        "custom_model": cfg.get("custom_model", ""),
+        "custom_api_key_masked": mask_value(str(cfg.get("custom_api_key", ""))),
+    })
 
 
 # ───────────────────────── 搜索源 ─────────────────────────
@@ -709,6 +739,19 @@ def _parse_merge_options(payload: dict, default_full_flow: bool = False) -> dict
         translate_subtitles = payload.get("translate_subtitles", True) in (True, "true", "True", 1, "1", "on")
         dubbing = payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on")
 
+    cfg = read_local_config()
+    default_endpoint = cfg.get("custom_endpoint") or os.getenv("CUSTOM_API_ENDPOINT") or DEFAULT_SETTINGS.get("customApiEndpoint", "")
+    default_api_key = cfg.get("custom_api_key") or os.getenv("CUSTOM_API_KEY") or DEFAULT_SETTINGS.get("customApiKey", "")
+    default_model = cfg.get("custom_model") or os.getenv("CUSTOM_MODEL") or DEFAULT_SETTINGS.get("customModel", "gemini-lite")
+
+    req_endpoint = str(payload.get("custom_endpoint") or payload.get("endpoint") or "").strip()
+    req_api_key = str(payload.get("custom_api_key") or payload.get("api_key") or payload.get("apikey") or "").strip()
+    req_model = str(payload.get("translate_model") or payload.get("model") or "").strip()
+
+    custom_endpoint = req_endpoint or default_endpoint
+    custom_api_key = req_api_key or default_api_key
+    translate_model = req_model or default_model
+
     return {
         "concurrency": int(payload.get("concurrency") or payload.get("threads") or payload.get("workers") or 5),
         "cut_end_seconds": float(payload.get("cut_end_seconds") or 0.0),
@@ -732,9 +775,9 @@ def _parse_merge_options(payload: dict, default_full_flow: bool = False) -> dict
         "generate_subtitles": generate_subtitles,
         "translate_subtitles": translate_subtitles,
         "translate_prompt": str(payload.get("translate_prompt") or payload.get("prompt") or "ai_tong_hop_thong_minh").strip(),
-        "custom_endpoint": str(payload.get("custom_endpoint") or payload.get("endpoint") or "").strip(),
-        "custom_api_key": str(payload.get("custom_api_key") or payload.get("api_key") or payload.get("apikey") or "").strip(),
-        "translate_model": str(payload.get("translate_model") or payload.get("model") or "").strip(),
+        "custom_endpoint": custom_endpoint,
+        "custom_api_key": custom_api_key,
+        "translate_model": translate_model,
         "storage_token": str(payload.get("storage_token", "")).strip(),
         "capcut_tdid": str(payload.get("capcut_tdid", "")).strip(),
         "source_lang": str(payload.get("source_lang", "auto")).strip(),

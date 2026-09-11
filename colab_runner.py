@@ -96,8 +96,12 @@ def start_cloudflare_tunnel(port: int = 5000) -> str:
     system = platform.system().lower()
     machine = platform.machine().lower()
 
-    binary_name = "cloudflared.exe" if system == "windows" else "cloudflared"
-    bin_path = BASE_DIR / binary_name
+    which_cf = shutil.which("cloudflared") or shutil.which("cloudflared.exe") or "/usr/local/bin/cloudflared"
+    if which_cf and os.path.exists(which_cf) and os.access(which_cf, os.X_OK):
+        bin_path = Path(which_cf)
+    else:
+        binary_name = "cloudflared.exe" if system == "windows" else "cloudflared"
+        bin_path = BASE_DIR / binary_name
 
     if not bin_path.exists() or not os.access(bin_path, os.X_OK):
         print("[Tunnel] Đang tải Cloudflare Tunnel (cloudflared)...")
@@ -141,7 +145,7 @@ def start_cloudflare_tunnel(port: int = 5000) -> str:
             url_found_event.set()
 
     threading.Thread(target=_monitor, daemon=True).start()
-    url_found_event.wait(timeout=12)
+    url_found_event.wait(timeout=25)
     return tunnel_url[0]
 
 
@@ -316,6 +320,38 @@ def print_banner(tunnels: Dict[str, str], port: int, save_dir: Path):
         except Exception:
             pass
 
+    try:
+        from IPython.display import display, HTML
+        html_cards = []
+        for name, u in tunnels.items():
+            if u:
+                html_cards.append(f'''
+                <div style="margin: 8px 0; padding: 10px 14px; background: #ffffff; border-radius: 8px; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                    <div>
+                        <span style="font-weight: 700; color: #1e293b; font-size: 13px;">{name}</span>
+                        <div style="font-size: 12px; color: #3b82f6; font-family: monospace; font-weight: 600;"><a href="{u}" target="_blank" style="color: #2563eb; text-decoration: underline;">{u}</a></div>
+                    </div>
+                    <a href="{u}" target="_blank" style="padding: 8px 18px; background: linear-gradient(135deg, #2563eb, #4f46e5); color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(37,99,235,0.3); display: inline-block;">
+                        👉 Mở Web UI ➔
+                    </a>
+                </div>
+                ''')
+        if html_cards:
+            ip_info = f'<p style="margin: 8px 0 0 0; font-size: 12px; color: #b45309;">🔑 <strong>Mật khẩu Localtunnel</strong> (Nhập IP nếu web hỏi password): <code style="background: #fef3c7; padding: 2px 6px; border-radius: 4px; font-weight: bold;">{public_ip}</code></p>' if (public_ip and any("loca.lt" in u for u in tunnels.values())) else ''
+            display(HTML(f'''
+            <div style="max-width: 720px; padding: 18px; background: #f8fafc; border: 2px solid #3b82f6; border-radius: 14px; margin: 14px 0; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                    <span style="font-size: 22px;">🎬</span>
+                    <h3 style="margin: 0; color: #1e293b; font-size: 17px; font-weight: 800;">Giao Diện Web Đã Sẵn Sàng Truy Cập!</h3>
+                </div>
+                <p style="margin: 0 0 10px 0; font-size: 13px; color: #475569;">Bấm vào một trong các đường link công khai bên dưới để mở giao diện Web trên trình duyệt:</p>
+                {''.join(html_cards)}
+                {ip_info}
+            </div>
+            '''))
+    except Exception:
+        pass
+
     print(f"\n 💾 Thư mục lưu video: {save_dir}")
     print("=" * 70)
     print("  💡 Lưu ý: Nếu đường link Cloudflare báo lỗi 'This site can’t be reached'")
@@ -333,7 +369,7 @@ def main():
     parser.add_argument("--install-id", type=str, default="", help="DUANJU_INSTALL_ID")
     parser.add_argument("--save-dir", type=str, default="", help="Custom download save directory")
     parser.add_argument("--cli", type=str, default="", help="CLI series_id to download in headless mode without web server")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # Determine save directory
     if args.save_dir:

@@ -588,6 +588,51 @@
             </select>
           </div>
 
+          <!-- Translation & LLM API Configuration -->
+          <div class="pt-4 border-t border-slate-200/80 flex flex-col gap-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-xs">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/></svg>
+              </div>
+              <div>
+                <h3 class="text-xs font-bold text-slate-800">Cấu Hình API Dịch Thuật & LLM (Translate Endpoint & API Key)</h3>
+                <p class="text-[11px] text-slate-500">Tùy chỉnh máy chủ API OpenAI-compatible, DeepSeek hoặc Gemini Proxy để dịch phụ đề</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label for="settingCustomEndpoint" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Custom API Endpoint
+                </label>
+                <input id="settingCustomEndpoint" type="text" autocomplete="off" placeholder="http://localhost:20128/v1" class="glass-input font-mono w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm outline-none">
+                <span class="text-[11px] text-slate-400 mt-1 block">Mặc định: <code>http://localhost:20128/v1</code> hoặc OpenAI / DeepSeek URL</span>
+              </div>
+
+              <div>
+                <label for="settingCustomApiKey" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Translate API Key
+                </label>
+                <div class="relative flex items-center">
+                  <input id="settingCustomApiKey" type="password" autocomplete="off" placeholder="sk-..." class="glass-input font-mono w-full px-3.5 py-2.5 pr-10 rounded-xl text-xs sm:text-sm outline-none">
+                  <button type="button" id="toggleSettingApiKeyVisible" class="absolute right-3 text-slate-400 hover:text-slate-600 p-1" title="Hiện / Ẩn API Key">
+                    <svg id="settingEyeIconOpen" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    <svg id="settingEyeIconClosed" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+                  </button>
+                </div>
+                <span id="settingApiKeyHint" class="text-[11px] text-slate-400 mt-1 block">Để trống nếu không thay đổi</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="settingCustomModel" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                Model Dịch Thuật Mặc Định (Translate Model)
+              </label>
+              <input id="settingCustomModel" type="text" autocomplete="off" placeholder="gemini-lite" class="glass-input font-mono w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm outline-none">
+              <span class="text-[11px] text-slate-400 mt-1 block">Model LLM mặc định (ví dụ: <code>gemini-lite</code>, <code>deepseek-chat</code>, <code>gpt-4o-mini</code>)</span>
+            </div>
+          </div>
+
           <div class="pt-3 flex items-center justify-end gap-3 border-t border-slate-200/80">
             <button id="saveConfig" class="btn-primary-gradient py-2.5 px-6 rounded-xl text-white font-semibold text-sm shadow flex items-center gap-2">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
@@ -1066,6 +1111,37 @@
                   <span>Hạ 5%</span>
                   <span>•</span>
                   <span>Mute 0.1s/0.9s</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Translation API & Key Options Row -->
+            <div class="pt-2 border-t border-pink-200/70 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label for="mergeCustomEndpoint" class="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span class="flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                    Custom Endpoint (Dịch):
+                  </span>
+                  <span class="text-[10px] text-slate-400 font-normal">Mặc định: localhost:20128</span>
+                </label>
+                <input id="mergeCustomEndpoint" type="text" placeholder="http://localhost:20128/v1" class="glass-input w-full px-3 py-2 rounded-xl text-xs font-mono font-medium outline-none bg-white border border-indigo-200 text-slate-800">
+              </div>
+
+              <div>
+                <label for="mergeCustomApiKey" class="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span class="flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                    API Key Translate:
+                  </span>
+                  <span class="text-[10px] text-slate-400 font-normal">sk-... (Để trống dùng mặc định)</span>
+                </label>
+                <div class="relative flex items-center">
+                  <input id="mergeCustomApiKey" type="password" placeholder="sk-..." autocomplete="off" class="glass-input w-full px-3 py-2 pr-9 rounded-xl text-xs font-mono outline-none bg-white border border-amber-200 text-slate-800">
+                  <button type="button" id="toggleMergeApiKeyVisible" class="absolute right-2.5 text-slate-400 hover:text-slate-600 p-1" title="Hiện / Ẩn API Key">
+                    <svg id="mergeEyeIconOpen" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    <svg id="mergeEyeIconClosed" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -2073,10 +2149,54 @@
     }
 
     // System Settings & Config
+    let cachedAppConfig = null;
+
+    function initTranslateSettingsFromCache(d = null) {
+      const cfg = d || cachedAppConfig || {};
+      const savedEndpoint = localStorage.getItem('translate_custom_endpoint') || cfg.custom_endpoint || 'http://localhost:20128/v1';
+      const savedApiKey = localStorage.getItem('translate_custom_api_key') || '';
+      const savedModel = localStorage.getItem('translate_custom_model') || cfg.custom_model || 'gemini-lite';
+
+      if ($('mergeCustomEndpoint') && (!$('mergeCustomEndpoint').value || $('mergeCustomEndpoint').value.includes('localhost:20128'))) {
+        $('mergeCustomEndpoint').value = savedEndpoint;
+      }
+      if ($('mergeCustomApiKey') && !$('mergeCustomApiKey').value && savedApiKey) {
+        $('mergeCustomApiKey').value = savedApiKey;
+      }
+      if ($('mergeTranslateModel') && (!$('mergeTranslateModel').value || $('mergeTranslateModel').value === 'gemini-lite')) {
+        $('mergeTranslateModel').value = savedModel;
+      }
+
+      if ($('settingCustomEndpoint') && !$('settingCustomEndpoint').value) {
+        $('settingCustomEndpoint').value = savedEndpoint;
+      }
+      if ($('settingCustomModel') && !$('settingCustomModel').value) {
+        $('settingCustomModel').value = savedModel;
+      }
+    }
+
+    function setupPasswordToggle(toggleBtnId, inputId, eyeOpenId, eyeClosedId) {
+      const btn = $(toggleBtnId);
+      const input = $(inputId);
+      const eyeOpen = $(eyeOpenId);
+      const eyeClosed = $(eyeClosedId);
+      if (!btn || !input) return;
+
+      btn.onclick = () => {
+        const isPassword = input.type === 'password';
+        input.type = isPassword ? 'text' : 'password';
+        if (eyeOpen && eyeClosed) {
+          eyeOpen.classList.toggle('hidden', !isPassword);
+          eyeClosed.classList.toggle('hidden', isPassword);
+        }
+      };
+    }
+
     async function loadConfig() {
       try {
         const r = await fetch('/api/config');
         const d = await r.json();
+        cachedAppConfig = d;
         const ok = !!d.configured;
 
         const card = $('configStatusCard');
@@ -2087,7 +2207,7 @@
           card.className = 'mb-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-3';
           card.querySelector('div').className = 'p-1 rounded-lg bg-emerald-100 text-emerald-700 mt-0.5';
           status.className = 'text-xs text-emerald-800';
-          status.textContent = `Đã cấu hình hợp lệ: device_id=${d.device_id_masked || '-'}, install_id=${d.install_id_masked || '-'}, platform=${d.platform || 'android'}`;
+          status.textContent = `Đã cấu hình thiết bị: device_id=${d.device_id_masked || '-'}, install_id=${d.install_id_masked || '-'}, platform=${d.platform || 'android'}`;
           if (indicator) {
             indicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
           }
@@ -2095,13 +2215,29 @@
           card.className = 'mb-5 p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3';
           card.querySelector('div').className = 'p-1 rounded-lg bg-amber-100 text-amber-700 mt-0.5';
           status.className = 'text-xs text-amber-800';
-          status.textContent = `Chưa cấu hình: Vui lòng nhập device_id và install_id. Tệp lưu: ${d.config_path || 'config.json'}`;
+          status.textContent = `Chưa cấu hình thiết bị: Vui lòng nhập device_id và install_id. Tệp lưu: ${d.config_path || 'config.json'}`;
           if (indicator) {
             indicator.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
           }
         }
 
         if (d.platform) $('platform').value = d.platform;
+        if (d.custom_endpoint && $('settingCustomEndpoint')) {
+          $('settingCustomEndpoint').value = d.custom_endpoint;
+        }
+        if (d.custom_model && $('settingCustomModel')) {
+          $('settingCustomModel').value = d.custom_model;
+        }
+        if ($('settingApiKeyHint')) {
+          if (d.custom_api_key_set) {
+            $('settingApiKeyHint').textContent = `Đang dùng: ${d.custom_api_key_masked} (Nhập mã mới nếu muốn đổi)`;
+          } else {
+            $('settingApiKeyHint').textContent = 'Chưa đặt API key riêng (sẽ dùng mặc định)';
+          }
+        }
+
+        initTranslateSettingsFromCache(d);
+
         const localSavedDir = localStorage.getItem('hongguo_download_dir');
         if ($('queueSaveDir')) {
           $('queueSaveDir').value = localSavedDir || '';
@@ -2112,16 +2248,33 @@
     }
 
     async function saveConfig() {
-      const body = {
-        device_id: $('deviceId').value.trim(),
-        install_id: $('installId').value.trim(),
-        platform: $('platform').value || 'android'
-      };
+      const deviceId = $('deviceId').value.trim();
+      const installId = $('installId').value.trim();
+      const customEndpoint = $('settingCustomEndpoint')?.value.trim() || '';
+      const customApiKey = $('settingCustomApiKey')?.value.trim() || '';
+      const customModel = $('settingCustomModel')?.value.trim() || '';
 
-      if (!body.device_id || !body.install_id) {
-        toast('Vui lòng điền đầy đủ device_id và install_id', 'error');
+      const hasDeviceFields = !!(deviceId || installId);
+      const hasTranslateFields = !!(customEndpoint || customApiKey || customModel);
+
+      if (hasDeviceFields && (!deviceId || !installId)) {
+        toast('Nếu sửa thông tin thiết bị, vui lòng điền đủ cả device_id và install_id', 'error');
         return;
       }
+
+      if (!hasDeviceFields && !hasTranslateFields) {
+        toast('Vui lòng nhập thông tin cần lưu', 'error');
+        return;
+      }
+
+      const body = {
+        platform: $('platform').value || 'android'
+      };
+      if (deviceId) body.device_id = deviceId;
+      if (installId) body.install_id = installId;
+      if (customEndpoint) body.custom_endpoint = customEndpoint;
+      if (customApiKey) body.custom_api_key = customApiKey;
+      if (customModel) body.custom_model = customModel;
 
       const saveBtn = $('saveConfig');
       saveBtn.disabled = true;
@@ -2138,8 +2291,22 @@
 
         $('deviceId').value = '';
         $('installId').value = '';
+        if (customEndpoint) {
+          localStorage.setItem('translate_custom_endpoint', customEndpoint);
+          if ($('mergeCustomEndpoint')) $('mergeCustomEndpoint').value = customEndpoint;
+        }
+        if (customApiKey) {
+          localStorage.setItem('translate_custom_api_key', customApiKey);
+          if ($('mergeCustomApiKey')) $('mergeCustomApiKey').value = customApiKey;
+        }
+        if (customModel) {
+          localStorage.setItem('translate_custom_model', customModel);
+          if ($('mergeTranslateModel')) $('mergeTranslateModel').value = customModel;
+        }
+        if ($('settingCustomApiKey')) $('settingCustomApiKey').value = '';
+
         await loadConfig();
-        toast('Đã lưu cấu hình thiết bị thành công', 'success');
+        toast('Đã lưu cấu hình thành công', 'success');
       } catch (e) {
         toast('Lưu cấu hình thất bại: ' + e.message, 'error');
       } finally {
@@ -2881,6 +3048,7 @@
       const cleanTitle = (onlineMergeSeriesTitle || 'Phim_Ghep').replace(/[\\/*?:"<>|]/g, '_').replace(/\s+/g, '_');
       $('mergeOutputName').value = `Phim_Ghep_${cleanTitle}_${vids.length}_tap.${format}`;
 
+      initTranslateSettingsFromCache();
       fetchDetectedGpu();
     }
 
@@ -2934,6 +3102,7 @@
       if ($('mergeClearSearchBtn')) $('mergeClearSearchBtn').classList.add('hidden');
 
       fetchDetectedGpu();
+      initTranslateSettingsFromCache();
       await fetchMergeVideosList(savedDir);
       generateDefaultOutputName();
     }
@@ -3301,9 +3470,15 @@
       const ttsVoice = $('mergeVoiceSelect')?.value || 'Ngọc Huyền';
       const translateModel = $('mergeTranslateModel')?.value.trim() || 'gemini-lite';
       const translatePrompt = $('mergeTranslatePrompt')?.value || 'ai_tong_hop_thong_minh';
+      const customEndpoint = $('mergeCustomEndpoint')?.value.trim() || '';
+      const customApiKey = $('mergeCustomApiKey')?.value.trim() || '';
       const dubVolume = parseFloat($('mergeDubVolume')?.value || 3.0);
       const bgVolume = parseFloat($('mergeBgVolume')?.value || 0.1);
       const concurrency = parseInt($('downloadConcurrency')?.value || 5, 10);
+
+      if (customEndpoint) localStorage.setItem('translate_custom_endpoint', customEndpoint);
+      if (customApiKey) localStorage.setItem('translate_custom_api_key', customApiKey);
+      if (translateModel) localStorage.setItem('translate_custom_model', translateModel);
 
       const payload = {
         cut_end_seconds: cutSec,
@@ -3336,6 +3511,11 @@
         model: translateModel,
         translate_prompt: translatePrompt,
         prompt: translatePrompt,
+        custom_endpoint: customEndpoint,
+        endpoint: customEndpoint,
+        custom_api_key: customApiKey,
+        api_key: customApiKey,
+        apikey: customApiKey,
         dub_volume: dubVolume,
         bg_volume: bgVolume,
         concurrency: concurrency,
@@ -3891,11 +4071,16 @@
       };
     }
 
+    // Password Toggles for Translation API Keys
+    setupPasswordToggle('toggleMergeApiKeyVisible', 'mergeCustomApiKey', 'mergeEyeIconOpen', 'mergeEyeIconClosed');
+    setupPasswordToggle('toggleSettingApiKeyVisible', 'settingCustomApiKey', 'settingEyeIconOpen', 'settingEyeIconClosed');
+
     // Initial Startup
     loadTasks();
     renderRows();
     renderTasks();
     loadConfig();
+    initTranslateSettingsFromCache();
   </script>
 </body>
 </html>
