@@ -727,9 +727,13 @@ def api_merge_start():
         "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
         "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
         "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
-        "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.2),
+        "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.35),
         "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.3),
         "video_speed": float(payload.get("video_speed") or payload.get("speed") or 0.9),
+        "bg_volume": float(payload.get("bg_volume") if payload.get("bg_volume") is not None else payload.get("dub_bg_volume", 0.1)),
+        "dub_volume": float(payload.get("dub_volume") if payload.get("dub_volume") is not None else payload.get("dubbing_volume", 3.0)),
+        "dub_pitch_down_pct": float(payload.get("dub_pitch_down_pct") if payload.get("dub_pitch_down_pct") is not None else 5.0),
+        "enable_periodic_mute": payload.get("enable_periodic_mute", True) in (True, "true", "True", 1, "1", "on"),
     }
 
     try:
@@ -779,9 +783,13 @@ def api_merge_start_online():
         "dubbing": payload.get("dubbing", True) in (True, "true", "True", 1, "1", "on"),
         "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
         "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
-        "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.2),
+        "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.35),
         "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.3),
         "video_speed": float(payload.get("video_speed") or payload.get("speed") or 0.9),
+        "bg_volume": float(payload.get("bg_volume") if payload.get("bg_volume") is not None else payload.get("dub_bg_volume", 0.1)),
+        "dub_volume": float(payload.get("dub_volume") if payload.get("dub_volume") is not None else payload.get("dubbing_volume", 3.0)),
+        "dub_pitch_down_pct": float(payload.get("dub_pitch_down_pct") if payload.get("dub_pitch_down_pct") is not None else 5.0),
+        "enable_periodic_mute": payload.get("enable_periodic_mute", True) in (True, "true", "True", 1, "1", "on"),
     }
 
     try:

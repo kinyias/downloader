@@ -7,7 +7,7 @@ Provides:
 - Intelligent audio alignment & gap allocation strategy:
     * Audio is allowed to be longer than subtitle duration by utilizing available silence gaps
       between utterances, while strictly never colliding with previous or next audio clips.
-    * Speed up audio up to 1.2x (via ffmpeg atempo) if audio exceeds subtitle duration.
+    * Speed up audio up to 1.35x (via ffmpeg atempo) if audio exceeds subtitle duration.
     * Left-aligned speech with zero leading silence (starts immediately when subtitle appears, no lag).
 - Automatic timing recovery:
     * If speech exceeds subtitle duration ("audio bị thừa"):
@@ -72,13 +72,18 @@ DEFAULT_VOICE = "Ngọc Huyền"
 
 
 def _log(msg: str):
-    """Log with timestamp."""
+    """Log with timestamp using tqdm.write to preserve progress bars."""
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    formatted = f"[{now_str}] [VieNeu-TTS] {msg}"
     try:
-        print(f"[{now_str}] [VieNeu-TTS] {msg}", flush=True)
-    except UnicodeEncodeError:
-        safe_msg = msg.encode("ascii", "backslashreplace").decode("ascii")
-        print(f"[{now_str}] [VieNeu-TTS] {safe_msg}", flush=True)
+        from tqdm import tqdm
+        tqdm.write(formatted)
+    except Exception:
+        try:
+            print(formatted, flush=True)
+        except UnicodeEncodeError:
+            safe_msg = formatted.encode("ascii", "backslashreplace").decode("ascii")
+            print(safe_msg, flush=True)
 
 
 def get_ffmpeg_bin() -> str:
@@ -137,8 +142,11 @@ def get_audio_duration_ffprobe(file_path: Path | str) -> float:
     return 0.0
 
 
-def create_silent_audio(out_path: Path | str, duration_sec: float, sample_rate: int = 44100) -> Path:
-    """Generate a valid silent WAV audio file using ffmpeg or direct PCM."""
+DEFAULT_SAMPLE_RATE = 48000
+
+
+def create_silent_audio(out_path: Path | str, duration_sec: float, sample_rate: int = DEFAULT_SAMPLE_RATE) -> Path:
+    """Generate a valid silent WAV audio file using ffmpeg or direct PCM at standardized 48kHz."""
     out_p = Path(out_path).resolve()
     out_p.parent.mkdir(parents=True, exist_ok=True)
     duration_sec = max(0.01, float(duration_sec))
@@ -150,6 +158,8 @@ def create_silent_audio(out_path: Path | str, duration_sec: float, sample_rate: 
         "-i", f"anullsrc=r={sample_rate}:cl=mono",
         "-t", f"{duration_sec:.4f}",
         "-c:a", "pcm_s16le",
+        "-ar", str(sample_rate),
+        "-ac", "1",
         str(out_p),
     ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -175,7 +185,7 @@ def create_silent_audio(out_path: Path | str, duration_sec: float, sample_rate: 
 
 
 def _apply_audio_speed(audio_path: Path | str, speed: float) -> None:
-    """Adjust playback speed of an audio file using ffmpeg atempo."""
+    """Adjust playback speed of an audio file using ffmpeg atempo preserving 48kHz."""
     p = Path(audio_path).resolve()
     if not p.exists() or p.stat().st_size == 0 or abs(speed - 1.0) <= 0.03:
         return
@@ -183,7 +193,10 @@ def _apply_audio_speed(audio_path: Path | str, speed: float) -> None:
     ffmpeg = get_ffmpeg_bin()
     cmd = [
         ffmpeg, "-y", "-i", str(p),
-        "-af", f"atempo={speed:.3f}",
+        "-af", f"atempo={speed:.3f},aresample=48000",
+        "-c:a", "pcm_s16le",
+        "-ar", "48000",
+        "-ac", "1",
         str(sped_temp)
     ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -432,11 +445,16 @@ def align_and_pad_audio_segment(
     fade_out_start = max(0.0, target_dur - 0.05)
     filters.append(f"afade=t=out:st={fade_out_start:.4f}:d=0.05")
     filters.append(f"atrim=0:{target_dur:.4f}")
+    filters.append("aresample=48000")
+    filters.append("aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=mono")
 
     af_filter = ",".join(filters)
     cmd = [
         ffmpeg, "-y", "-i", str(in_p),
         "-af", af_filter,
+        "-c:a", "pcm_s16le",
+        "-ar", "48000",
+        "-ac", "1",
         str(out_p)
     ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -447,57 +465,51 @@ def align_and_pad_audio_segment(
     return out_p, final_dur
 
 
-def condense_segment_via_llm(
+def condense_segment_via_condensation(
     segment: Dict[str, Any],
     target_duration: float,
     chat_url: str,
     headers: Dict[str, str],
     model: str = "gemini-lite",
+    max_speedup: float = 1.35,
 ) -> Optional[str]:
     """
-    Rút gọn hoặc dịch lại câu thoại qua LLM để khớp với thời lượng khả dụng.
-    Tính toán ngân sách âm tiết hợp lý (target_duration * 1.2 * 3.3).
+    Rút gọn câu thoại qua cơ chế Condensation kiểu mới (theo chuẩn node_helper)
+    thay vì prompt đơn sơ kiểu cũ.
     """
-    import requests
-    full_text = segment.get("spokenText") or segment.get("translation") or segment.get("text") or ""
+    import node_helper
+    full_text = str(segment.get("spokenText") or segment.get("translation") or segment.get("text") or "").strip()
     if not full_text:
         return None
 
-    # Tính ngân sách âm tiết dựa trên thời lượng khả dụng với tốc độ nói tiếng Việt tự nhiên
-    budget_syl = max(2, int(math.floor(target_duration * 1.2 * 3.3)))
+    # Tính ngân sách âm tiết chuẩn theo target_duration và max_speedup
+    budget_syl = max(2, int(target_duration * 3.8 * float(max_speedup or 1.35) * 0.95))
+    api_key = (headers.get("Authorization") or "").replace("Bearer ", "").strip()
+    translator = node_helper.DeepSeekTranslator(api_key=api_key or "dummy")
+    
+    cand = [{
+        "id": str(segment.get("id", "1")),
+        "source": segment.get("text", ""),
+        "full": full_text,
+        "budget": budget_syl,
+        "budgetMin": max(2, int(node_helper.vi_syllables_spoken(full_text) * 0.70))
+    }]
+    
+    # Lượt 1 (Condensation chuẩn 70-85%)
+    res = translator.condense_chunk(cand, {"model": model, "url": chat_url}, deep=False)
+    short_text = res.get(cand[0]["id"])
+    
+    # Nếu lượt 1 vẫn vượt quá budget, thực hiện lượt 2 (Deep Condensation 50-70%)
+    if short_text and node_helper.vi_syllables_spoken(short_text) > budget_syl:
+        cand[0]["budgetMin"] = max(2, int(node_helper.vi_syllables_spoken(full_text) * 0.50))
+        res_deep = translator.condense_chunk(cand, {"model": model, "url": chat_url}, deep=True)
+        if res_deep.get(cand[0]["id"]):
+            short_text = res_deep[cand[0]["id"]]
+            
+    return short_text if short_text and short_text != full_text else None
 
-    prompt = (
-        f"Bạn là chuyên gia biên tập lồng tiếng phim. "
-        f"Câu thoại sau hiện đang quá dài, thời lượng video khả dụng là khoảng {target_duration:.2f} giây. "
-        f"Hãy dịch hoặc rút gọn câu này sang tiếng Việt thật tự nhiên, súc tích, "
-        f"BẮT BUỘC KHÔNG VƯỢT QUÁ {budget_syl} ÂM TIẾT nhưng vẫn giữ được ý cốt lõi của câu thoại.\n\n"
-        f"Câu gốc: {segment.get('text', '')}\n"
-        f"Bản dịch hiện tại: {full_text}\n\n"
-        f"Chỉ trả về DUY NHẤT câu tiếng Việt rút gọn, không thêm bất kỳ từ giải thích hay ký hiệu nào khác."
-    )
-
-    payload = {
-        "model": model or "gemini-lite",
-        "messages": [
-            {"role": "system", "content": "Bạn là chuyên gia biên tập kịch bản lồng tiếng. Chỉ trả về câu thoại đã rút gọn."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2,
-        "stream": False
-    }
-
-    try:
-        resp = requests.post(chat_url, headers=headers, json=payload, timeout=30)
-        if resp.status_code == 200:
-            res_json = resp.json()
-            short_text = res_json.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-            short_text = short_text.strip('"`\' \n')
-            if short_text:
-                return short_text
-    except Exception as e:
-        _log(f"⚠️ Lỗi khi gọi LLM rút gọn câu segment #{segment.get('id')}: {e}")
-
-    return None
+# Alias tương thích ngược
+condense_segment_via_llm = condense_segment_via_condensation
 
 
 def process_segment_dubbing_with_retry(
@@ -511,7 +523,7 @@ def process_segment_dubbing_with_retry(
     chat_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
     model: str = "gemini-lite",
-    max_speedup: float = 1.2,
+    max_speedup: float = 1.35,
     tolerance: float = 0.3,
     min_gap: float = 0.05,
     on_status: Optional[Callable[[str], None]] = None,
@@ -519,7 +531,7 @@ def process_segment_dubbing_with_retry(
     """
     Xử lý lồng tiếng cho một phân đoạn phụ đề sử dụng node_helper.verify_dubbing_fit & compute_timing_plan:
     1. Kiểm tra audio đã tạo sẵn hoặc tổng hợp với VieNeu-TTS.
-    2. Sử dụng node_helper.verify_dubbing_fit để kiểm tra xem audio có vừa khung (sau khi borrow và tempo 1.2x) không.
+    2. Sử dụng node_helper.verify_dubbing_fit để kiểm tra xem audio có vừa khung (sau khi borrow và tempo 1.35x) không.
     3. Nếu không vừa (audio bị thừa / infeasible): chỉ gen lại audio với VieNeu-TTS (thử lại các lần), không dịch rút gọn câu qua LLM.
     4. Căn chỉnh audio theo plannedStart, plannedEnd, audioTempo từ timing_plan của node_helper.
     """
@@ -548,7 +560,7 @@ def process_segment_dubbing_with_retry(
 
     # Cấu hình policy cho node_helper
     policy = {
-        "residualTempoCap": float(max_speedup or 1.2),
+        "residualTempoCap": float(max_speedup or 1.35),
         "borrowSideMaxSec": 2.0,
         "borrowSideMaxFrac": 0.8,
         "borrowTotalMaxSec": 3.0,
@@ -631,6 +643,40 @@ def process_segment_dubbing_with_retry(
                     _log(f"[Dubbing Segment #{s_id}] ✅ Gen lại lần {attempt} thành công ({audio_dur_retry:.2f}s) đã vừa vặn khung thời gian!")
                     break
 
+        # Nếu sau khi gen lại vẫn còn thừa thời lượng, áp dụng kiểu mới Condensation để rút gọn lời đọc
+        if is_infeasible and chat_url:
+            msg = (
+                f"[Dubbing Segment #{s_id}] Audio ({best_dur:.2f}s) vẫn còn thừa sau khi gen lại. "
+                f"Đang áp dụng kiểu mới CONDENSATION để rút gọn lời đọc..."
+            )
+            _log(msg)
+            if on_status:
+                on_status(msg)
+
+            u_cur = _extract_unit(fit_res)
+            p_win = float(u_cur.get("plannedWindow") or target_dur)
+            shortened = condense_segment_via_condensation(
+                segment=segment,
+                target_duration=p_win,
+                chat_url=chat_url,
+                headers=headers or {},
+                model=model,
+                max_speedup=max_speedup
+            )
+            if shortened and shortened != text:
+                _log(f"[Dubbing Segment #{s_id}] ➔ Bản rút gọn Condensation mới: '{shortened}' (thay cho '{text}')")
+                segment["spokenText"] = shortened
+                seg_condensed_path = temp_dir / f"seg_{s_id}_condensed.wav"
+                tts.synthesize(shortened, seg_condensed_path, voice=voice)
+                dur_condensed = get_audio_duration_ffprobe(seg_condensed_path)
+                if dur_condensed > 0:
+                    unit_item["audioDuration"] = dur_condensed
+                    unit_item["spokenText"] = shortened
+                    recheck = _eval_fit(unit_item)
+                    best_audio_path = seg_condensed_path
+                    best_dur = dur_condensed
+                    fit_res = recheck
+
         seg_raw_path = best_audio_path
         audio_dur = best_dur
 
@@ -683,7 +729,7 @@ def build_full_dubbed_audio(
     chat_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
     model: str = "gemini-lite",
-    max_speedup: float = 1.2,
+    max_speedup: float = 1.35,
     tolerance: float = 0.3,
     min_gap: float = 0.05,
     on_progress: Optional[Callable[[float, str], None]] = None,
@@ -693,7 +739,7 @@ def build_full_dubbed_audio(
     1. Batch GPU inference với VieNeu-TTS để tạo audio thô.
     2. Sử dụng node_helper.verify_dubbing_fit để kiểm tra toàn bộ các câu:
        - Mượn khoảng trống 2 bên (không chạm câu trước/sau).
-       - Tăng tốc tối đa 1.2x.
+       - Tăng tốc tối đa 1.35x.
        - Cho phép dung sai 0.3s.
     3. Nếu có phân đoạn infeasible (audio bị thừa > 0.3s):
        - Chỉ gen lại audio với VieNeu-TTS (thử lại các lần), KHÔNG dịch rút gọn câu qua LLM.
@@ -751,7 +797,7 @@ def build_full_dubbed_audio(
 
         # Phase 2: Timing Plan & Verification sử dụng node_helper
         dubbing_policy = {
-            "residualTempoCap": float(max_speedup or 1.2),
+            "residualTempoCap": float(max_speedup or 1.35),
             "borrowSideMaxSec": 2.0,
             "borrowSideMaxFrac": 0.8,
             "borrowTotalMaxSec": 3.0,
@@ -773,42 +819,110 @@ def build_full_dubbed_audio(
         plan = fit_res.get("plan") or {}
 
         # Nếu audio bị thừa so với khung thời gian (infeasible > tolerance):
-        # Chỉ gen lại audio với VieNeu-TTS, KHÔNG dịch rút gọn lại
         if infeasible_ids:
-            msg = f"Phát hiện {len(infeasible_ids)} phân đoạn audio bị thừa > {tolerance:.1f}s theo verify_dubbing_fit. Đang tiến hành gen lại audio..."
+            msg = f"Phát hiện {len(infeasible_ids)} phân đoạn audio bị thừa > {tolerance:.1f}s theo verify_dubbing_fit. Đang tiến hành tối ưu hóa..."
             _log(msg)
             if on_progress:
                 on_progress(63, msg)
 
-            max_retries = 2
-            for attempt in range(1, max_retries + 1):
-                if not infeasible_ids:
-                    break
+            # Lần 1: Thử gen lại audio giữ nguyên văn bản (VieNeu-TTS có thể gen tốc độ nhanh hơn)
+            _log(f"--> [Dubbing Retry Lần 1] Thử gen lại audio cho {len(infeasible_ids)} phân đoạn bị thừa...")
+            for s_id in list(infeasible_ids):
+                seg = next((s for s in sorted_segs if str(s.get("id", s.get("unitId"))) == s_id), None)
+                if not seg:
+                    continue
+                text = str(seg.get("spokenText") or seg.get("subtitleText") or seg.get("translation") or "").strip()
+                seg_retry_path = temp_dir / f"seg_{s_id}_retry1.wav"
+                tts.synthesize(text, seg_retry_path, voice=voice)
+                new_dur = get_audio_duration_ffprobe(seg_retry_path)
+                cur_dur = float(seg.get("audioDuration", 0.0))
+                if new_dur > 0 and (cur_dur <= 0 or new_dur < cur_dur):
+                    seg["audioDuration"] = new_dur
+                    raw_audio_map[s_id] = seg_retry_path
 
-                _log(f"--> [Dubbing Retry {attempt}/{max_retries}] Đang gen lại audio cho {len(infeasible_ids)} phân đoạn bị thừa (giữ nguyên văn bản, không dịch rút gọn)...")
+            # Re-check sau lần 1
+            recheck = node_helper.verify_dubbing_fit(
+                sorted_segs,
+                {"totalDuration": total_duration, "policy": dubbing_policy}
+            )
+            infeasible_ids = list(recheck.get("infeasibleUnitIds") or [])
+            plan = recheck.get("plan") or {}
+
+            # Lần 2: Nếu vẫn còn câu bị thừa thời lượng, áp dụng KIỂU MỚI CONDENSATION để rút gọn lời đọc
+            if infeasible_ids and chat_url:
+                _log(f"--> [Dubbing Retry Lần 2] Áp dụng kiểu mới CONDENSATION để rút gọn lời đọc cho {len(infeasible_ids)} câu còn thừa...")
+                if on_progress:
+                    on_progress(66, f"Đang rút gọn theo Condensation mới cho {len(infeasible_ids)} câu...")
+
+                units_dict = {str(u.get("unitId")): u for u in plan.get("units", [])}
+                condense_candidates = []
                 for s_id in list(infeasible_ids):
                     seg = next((s for s in sorted_segs if str(s.get("id", s.get("unitId"))) == s_id), None)
                     if not seg:
                         continue
-                    text = str(seg.get("spokenText") or seg.get("subtitleText") or seg.get("translation") or "").strip()
-                    seg_retry_path = temp_dir / f"seg_{s_id}_retry{attempt}.wav"
-                    tts.synthesize(text, seg_retry_path, voice=voice)
-                    new_dur = get_audio_duration_ffprobe(seg_retry_path)
-                    cur_dur = float(seg.get("audioDuration", 0.0))
-                    if new_dur > 0 and (cur_dur <= 0 or new_dur < cur_dur):
-                        seg["audioDuration"] = new_dur
-                        raw_audio_map[s_id] = seg_retry_path
+                    u_info = units_dict.get(s_id) or {}
+                    p_win = float(u_info.get("plannedWindow") or (float(seg.get("endTime", 0)) - float(seg.get("startTime", 0))))
+                    b_syl = max(2, int(p_win * 3.8 * float(max_speedup or 1.35) * 0.95))
+                    cur_spoken = str(seg.get("spokenText") or seg.get("translation") or seg.get("text") or "").strip()
+                    condense_candidates.append({
+                        "id": s_id,
+                        "source": seg.get("text", ""),
+                        "full": cur_spoken,
+                        "budget": b_syl,
+                        "budgetMin": max(2, int(node_helper.vi_syllables_spoken(cur_spoken) * 0.70)),
+                        "seg": seg
+                    })
 
-                # Re-check bằng node_helper.verify_dubbing_fit
-                recheck = node_helper.verify_dubbing_fit(
-                    sorted_segs,
-                    {"totalDuration": total_duration, "policy": dubbing_policy}
-                )
-                infeasible_ids = list(recheck.get("infeasibleUnitIds") or [])
-                plan = recheck.get("plan") or {}
-                if not infeasible_ids:
-                    _log(f"✅ Sau lần gen lại thứ {attempt}, toàn bộ phân đoạn audio đã vừa vặn khung thời gian!")
-                    break
+                if condense_candidates:
+                    api_key = (headers.get("Authorization") or "").replace("Bearer ", "").strip()
+                    translator = node_helper.DeepSeekTranslator(api_key=api_key or "dummy")
+                    
+                    # Pass 1: Condensation chuẩn
+                    condensed_map = translator.condense_chunk(condense_candidates, {"model": model, "url": chat_url}, deep=False)
+                    
+                    # Pass 2: Deep Condensation cho những câu vẫn còn dài (chỉ thực hiện nếu Pass 1 có kết quả)
+                    deep_cands = []
+                    if condensed_map:
+                        for c in condense_candidates:
+                            c_id = c["id"]
+                            read1 = condensed_map.get(c_id, c["full"])
+                            c["seg"]["spokenText"] = read1
+                            if node_helper.vi_syllables_spoken(read1) > c["budget"]:
+                                c["budgetMin"] = max(2, int(node_helper.vi_syllables_spoken(c["full"]) * 0.50))
+                                deep_cands.append(c)
+                        
+                        if deep_cands:
+                            deep_map = translator.condense_chunk(deep_cands, {"model": model, "url": chat_url}, deep=True)
+                            for dc in deep_cands:
+                                dc_id = dc["id"]
+                                if dc_id in deep_map and deep_map[dc_id]:
+                                    dc["seg"]["spokenText"] = deep_map[dc_id]
+
+                    # Gen lại audio với câu đã rút gọn bằng Condensation mới
+                    _log(f"--> [Condensation] Đang tổng hợp lại giọng đọc cho {len(condense_candidates)} phân đoạn đã rút gọn...")
+                    for idx_c, c in enumerate(condense_candidates):
+                        s_id = c["id"]
+                        seg = c["seg"]
+                        new_text = seg["spokenText"]
+                        if on_progress:
+                            c_pct = 70 + (idx_c / max(1, len(condense_candidates))) * 5  # 70% -> 75%
+                            on_progress(c_pct, f"Rút gọn & tổng hợp lại audio ({idx_c+1}/{len(condense_candidates)})")
+                        seg_retry_path = temp_dir / f"seg_{s_id}_condensed.wav"
+                        tts.synthesize(new_text, seg_retry_path, voice=voice)
+                        new_dur = get_audio_duration_ffprobe(seg_retry_path)
+                        if new_dur > 0:
+                            seg["audioDuration"] = new_dur
+                            raw_audio_map[s_id] = seg_retry_path
+
+                    # Re-check lần cuối bằng verify_dubbing_fit
+                    final_recheck = node_helper.verify_dubbing_fit(
+                        sorted_segs,
+                        {"totalDuration": total_duration, "policy": dubbing_policy}
+                    )
+                    infeasible_ids = list(final_recheck.get("infeasibleUnitIds") or [])
+                    plan = final_recheck.get("plan") or {}
+                    if not infeasible_ids:
+                        _log("✅ Sau khi rút gọn bằng Condensation mới, toàn bộ phân đoạn audio đã vừa vặn khung thời gian!")
 
         # Chốt timing plan cuối cùng bằng node_helper.compute_timing_plan
         final_plan = node_helper.compute_timing_plan(
@@ -906,8 +1020,12 @@ def build_full_dubbed_audio(
         if on_progress:
             on_progress(95, "Đang ghép các phân đoạn thành file audio dubbing hoàn chỉnh...")
 
-        # Concat all segments into the final master audio (mp3 / wav)
-        codec_flag = ["-c:a", "libmp3lame", "-b:a", "192k"] if out_audio.suffix.lower() == ".mp3" else ["-c:a", "pcm_s16le"]
+        # Concat all segments into the final master audio (mp3 / wav) at standardized 48kHz
+        codec_flag = (
+            ["-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000"]
+            if out_audio.suffix.lower() == ".mp3"
+            else ["-c:a", "pcm_s16le", "-ar", "48000"]
+        )
         cmd_concat = [
             ffmpeg, "-y",
             "-f", "concat",
@@ -936,21 +1054,23 @@ def render_dubbed_video(
     video_path: Path | str,
     dubbed_audio_path: Path | str,
     output_video_path: Path | str,
-    bg_volume: float = 0.2,
+    bg_volume: float = 0.1,
     dub_volume: float = 3.0,
     pitch_down_pct: float = 5.0,
+    enable_periodic_mute: bool = True,
     on_progress: Optional[Callable[[float, str], None]] = None,
 ) -> Path:
     """
     Render final dubbed video by merging video with dubbed audio track:
     - Original background audio ([0:a]):
-        * Volume reduced to bg_volume (default 0.2)
-        * Periodic mute: every 0.9s mute for 0.1s (cycle: 1.0s)
-        * Pitch down by pitch_down_pct (default 5% -> pitch 0.95) for anti-copyright
+        * Volume reduced to bg_volume (default 0.1)
+        * Periodic mute: every 0.9s mute for 0.1s (cycle: 1.0s) enabled by default (enable_periodic_mute=True)
+        * Pitch down: 5% down (pitch ratio 0.95) enabled by default (pitch_down_pct=5.0)
     - Dubbed audio ([1:a]):
         * Volume amplified to dub_volume (default 3.0)
         * Pure natural pitch preserved (NO pitch shifting applied to dubbing audio)
-    - Audio tracks mixed with amix (normalize=0).
+        * Strictly normalized to 48kHz audio stream
+    - Audio tracks mixed with amix (normalize=0) at standardized 48kHz.
     - Video stream copied without re-encoding (-c:v copy) for maximum speed.
     """
     in_v = Path(video_path).resolve()
@@ -965,30 +1085,65 @@ def render_dubbed_video(
         raise FileNotFoundError(f"Dubbed audio file not found: {in_a}")
 
     _log(
-        f"Đang render video lồng tiếng ({out_v.name}) [Âm dubbing: {dub_volume:.1f}x (giữ nguyên cao độ tự nhiên, KHÔNG pitch down), "
-        f"Âm nền video gốc: {bg_volume:.2f}x (pitch down {pitch_down_pct}%, mute 0.1s/0.9s)]..."
+        f"Đang render video lồng tiếng ({out_v.name}) [Âm dubbing: {dub_volume:.1f}x (chuẩn 48kHz, giữ nguyên cao độ tự nhiên), "
+        f"Âm nền video gốc: {bg_volume:.2f}x (pitch down {pitch_down_pct}%, mute định kỳ 0.1s/0.9s: {enable_periodic_mute})]..."
     )
     if on_progress:
         on_progress(5, f"Bắt đầu render video lồng tiếng: {out_v.name}...")
 
-    # Calculate pitch factor (e.g. 5% down -> 0.95)
-    pitch_ratio = max(0.8, min(1.0, 1.0 - (pitch_down_pct / 100.0)))
-    atempo_comp = 1.0 / pitch_ratio
+    has_pitch_down = float(pitch_down_pct or 0.0) > 0.01
+    pitch_ratio = max(0.8, min(1.0, 1.0 - (pitch_down_pct / 100.0))) if has_pitch_down else 1.0
+    atempo_comp = (1.0 / pitch_ratio) if has_pitch_down else 1.0
 
-    # Periodic mute every 0.9s for 0.1s: if(lt(mod(t,1.0),0.9),0.2,0)
-    vol_expr = f"volume='if(lt(mod(t,1.0),0.9),{bg_volume:.3f},0)':eval=frame"
-    dub_vol_expr = f"volume={dub_volume:.3f}"
+    # Background audio filter chain with librubberband
+    bg_filters_rb = []
+    if has_pitch_down:
+        bg_filters_rb.extend([f"rubberband=pitch={pitch_ratio:.4f}", "aresample=48000"])
+    else:
+        bg_filters_rb.append("aresample=48000")
 
-    # Try librubberband filter first, fallback to asetrate/atempo
+    if enable_periodic_mute and bg_volume > 0:
+        bg_filters_rb.extend([
+            "asetnsamples=n=960",
+            f"volume='if(lt(mod(t,1.0),0.899),{bg_volume:.3f},0)':eval=frame",
+        ])
+    else:
+        bg_filters_rb.append(f"volume={bg_volume:.3f}")
+
+    # Background audio filter chain with fallback asetrate/atempo
+    bg_filters_fb = []
+    if has_pitch_down:
+        bg_filters_fb.extend([
+            f"asetrate=48000*{pitch_ratio:.4f}",
+            f"atempo={atempo_comp:.4f}",
+            "aresample=48000",
+        ])
+    else:
+        bg_filters_fb.append("aresample=48000")
+
+    if enable_periodic_mute and bg_volume > 0:
+        bg_filters_fb.extend([
+            "asetnsamples=n=960",
+            f"volume='if(lt(mod(t,1.0),0.899),{bg_volume:.3f},0)':eval=frame",
+        ])
+    else:
+        bg_filters_fb.append(f"volume={bg_volume:.3f}")
+
+    bg_filter_rb = ",".join(bg_filters_rb)
+    bg_filter_fb = ",".join(bg_filters_fb)
+
+    dub_filters = [f"volume={dub_volume:.3f}", "aresample=48000"]
+    dub_filter_str = ",".join(dub_filters)
+
     rubberband_filter = (
-        f"[0:a]{vol_expr},rubberband=pitch={pitch_ratio:.4f}[a_bg];"
-        f"[1:a]{dub_vol_expr}[a_dub];"
+        f"[0:a]{bg_filter_rb}[a_bg];"
+        f"[1:a]{dub_filter_str}[a_dub];"
         f"[a_bg][a_dub]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a_out]"
     )
 
     fallback_filter = (
-        f"[0:a]{vol_expr},asetrate=44100*{pitch_ratio:.4f},atempo={atempo_comp:.4f},aresample=44100[a_bg];"
-        f"[1:a]{dub_vol_expr}[a_dub];"
+        f"[0:a]{bg_filter_fb}[a_bg];"
+        f"[1:a]{dub_filter_str}[a_dub];"
         f"[a_bg][a_dub]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a_out]"
     )
 
@@ -1002,6 +1157,7 @@ def render_dubbed_video(
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-ar", "48000",
         str(out_v)
     ]
 
@@ -1018,6 +1174,7 @@ def render_dubbed_video(
             "-c:v", "copy",
             "-c:a", "aac",
             "-b:a", "192k",
+            "-ar", "48000",
             str(out_v)
         ]
         res_fb = subprocess.run(cmd_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

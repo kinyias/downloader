@@ -53,7 +53,7 @@ except ImportError:
 
 ONE_FRAME_TOLERANCE = 1.0 / 24.0
 TTS_TEMPO_MAX_HARD = 2.5
-MAX_VOICE_SPEED = 1.2
+MAX_VOICE_SPEED = 1.35
 MIN_VIDEO_SPEED = 0.7
 CHUNK_SECONDS = 45
 CHUNK_OVERLAP_SECONDS = 3
@@ -664,10 +664,14 @@ class NativeRequiredError(Exception):
         self.name = "NativeRequiredError"
 
 def log_message(msg: Any) -> None:
-    """Print log message to stderr and stdout cleanly."""
+    """Print log message cleanly without corrupting active tqdm progress bars."""
     line = str(msg).rstrip("\r\n")
-    sys.stderr.write(line + "\n")
-    sys.stderr.flush()
+    try:
+        from tqdm import tqdm
+        tqdm.write(line, file=sys.stderr)
+    except Exception:
+        sys.stderr.write(line + "\n")
+        sys.stderr.flush()
 
 def emit_event(event_type: str, data: Dict[str, Any]) -> None:
     """Emit JSON event message to stdout for parent process."""
@@ -2159,36 +2163,485 @@ def resolve_provider(model_name: str, custom_provider: Optional[str] = None) -> 
         return {"id": "openai", "name": "OpenAI", "apiKeySettingKey": "openaiApiKey", "url": "https://api.openai.com/v1/chat/completions"}
     return {"id": "custom", "name": "Custom LLM", "apiKeySettingKey": "customApiKey", "url": "http://localhost:11434/v1/chat/completions"}
 
+def calculate_segment_budgets(segments: List[Dict[str, Any]], syl_per_sec: float = 4.3) -> List[Dict[str, Any]]:
+    """
+    Compute budgetSyl for each segment matching node_helper.js:
+    dur = endTime - startTime
+    borrowableGap = 0.5 * gapBefore + 0.5 * gapAfter (capped at 0.6s each)
+    budgetSyl = max(2, int((dur + borrowableGap) * syl_per_sec * 0.95))
+    """
+    n = len(segments)
+    result = []
+    for i, s in enumerate(segments):
+        start = float(s.get("startTime", 0.0))
+        end = float(s.get("endTime", start + 1.0))
+        dur = max(0.2, end - start)
+        
+        gap_before = 0.0
+        if i > 0:
+            prev_end = float(segments[i - 1].get("endTime", 0.0))
+            gap_before = max(0.0, start - prev_end - 0.08)
+        else:
+            gap_before = max(0.0, start)
+        gap_before = min(0.6, gap_before * 0.5)
+        
+        gap_after = 0.0
+        if i + 1 < n:
+            next_start = float(segments[i + 1].get("startTime", end))
+            gap_after = max(0.0, next_start - end - 0.08)
+        else:
+            gap_after = 0.5
+        gap_after = min(0.6, gap_after * 0.5)
+        
+        borrowable_gap = gap_before + gap_after
+        budget_syl = max(2, int((dur + borrowable_gap) * syl_per_sec * 0.95))
+        
+        seg_copy = dict(s)
+        seg_copy["budgetSyl"] = budget_syl
+        result.append(seg_copy)
+    return result
+
 class DeepSeekTranslator:
-    """LLM Translation client with Lore Bible & Glossary injection."""
+    """LLM Translation client with Lore Bible & Glossary injection matching node_helper.js."""
     def __init__(self, api_key: str):
         self.api_key = api_key
 
-    def translate_segments(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _needs_retry(self, orig: str, trans: str, source: str = "auto", target: str = "vi") -> bool:
+        """Check if translation for a segment needs retry matching node_helper.js."""
+        o = (orig or "").strip()
+        t = (trans or "").strip()
+        if not o:
+            return False
+        has_letters = bool(re.search(r'[a-zA-ZÀ-ỹ\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', o))
+        if not has_letters and cjk_ratio(o) < 0.05:
+            return False
+        if not t:
+            return True
+        if o == t:
+            return True
+        src = (source or "auto").lower()
+        tgt = (target or "vi").lower()
+        if src in ["auto", "zh", "ja", "ko", ""]:
+            if tgt not in ["zh", "ja", "ko"] and cjk_ratio(t) >= 0.05:
+                return True
+        else:
+            if src != tgt:
+                w_orig = [w.lower() for w in o.split() if w]
+                w_trans = [w.lower() for w in t.split() if w]
+                if len(w_orig) >= 4 and w_orig == w_trans:
+                    return True
+        return False
+
+    def build_retry_context(self, targets: List[Dict[str, Any]], 
+                            translated_map: Dict[str, str], 
+                            miss_indices: List[int]) -> List[Dict[str, Any]]:
+        """Build surrounding context for missed segments matching node_helper.js."""
+        miss_set = set(miss_indices)
+        context_map: Dict[int, Dict[str, Any]] = {}
+        for idx in miss_indices:
+            for offset in [-2, -1, 1]:
+                cand = idx + offset
+                if 0 <= cand < len(targets) and cand not in miss_set and cand not in context_map:
+                    t = translated_map.get(str(targets[cand].get("id", cand)))
+                    if t and t != targets[cand].get("text", ""):
+                        context_map[cand] = {
+                            **targets[cand],
+                            "translation": t,
+                            "contextOnly": True
+                        }
+        sorted_contexts = [v for _, v in sorted(context_map.items())]
+        return sorted_contexts[:8]
+
+    def _call_llm(self, messages: List[Dict[str, str]], model: str, url: str, temperature: float = 0.3) -> str:
+        """Call LLM completions endpoint with requests or urllib."""
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False
+        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key and self.api_key != "dummy":
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        if requests is not None:
+            resp = requests.post(url, headers=headers, json=payload, timeout=180)
+            if resp.status_code != 200:
+                raise RuntimeError(f"LLM API error ({resp.status_code}): {resp.text[:300]}")
+            raw = (resp.text or "").strip()
+        else:
+            data_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=180) as r:
+                raw = r.read().decode("utf-8").strip()
+
+        # Handle SSE / data: lines or JSON
+        if raw.startswith("data:") or "text/event-stream" in raw:
+            parts = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith("data:") and line[5:].strip() != "[DONE]":
+                    try:
+                        delta = json.loads(line[5:].strip()).get("choices", [{}])[0].get("delta", {})
+                        if delta.get("content"):
+                            parts.append(delta["content"])
+                    except Exception:
+                        pass
+            return "".join(parts).strip()
+        
+        try:
+            data = json.loads(raw)
+            choices = data.get("choices") or []
+            if choices:
+                return choices[0].get("message", {}).get("content", "").strip()
+        except Exception:
+            pass
+        return raw
+
+    def condense_chunk(self, candidates: List[Dict[str, Any]], opts: Dict[str, Any], deep: bool = False) -> Dict[str, str]:
+        """Condense lines to fit target spoken duration matching node_helper.js."""
+        if not candidates:
+            return {}
+        n_lines = len(candidates)
+        model = opts.get("model", "deepseek-chat")
+        url = opts.get("url", "https://api.deepseek.com/chat/completions")
+
+        if deep:
+            system_prompt = (
+                f"Bạn là biên tập LỜI ĐỌC lồng tiếng. Các dòng dưới đây ĐÃ rút gọn một lần mà vẫn quá dài so với khung hình, "
+                f"nên cần NÉN SÂU: viết lại BẢN ĐỌC từ BẢN ĐỦ, độ dài NẰM TRONG khoảng âm tiết cho phép của dòng đó "
+                f"(1 từ tiếng Việt = 1 âm tiết) — khoảng 50–70% BẢN ĐỦ, KHÔNG được ngắn hơn mức tối thiểu. "
+                f"BẮT BUỘC GIỮ: ý cốt lõi (ai làm gì), con số, tên riêng, phủ định và cách xưng hô. "
+                f"Được phép: bỏ mệnh đề phụ/chi tiết bổ trợ, bỏ ví von nếu buộc phải chọn, gộp ý bằng cách nói ngắn tự nhiên. "
+                f"KHÔNG thêm ý mới, KHÔNG đổi nghĩa, KHÔNG viết cụt lủn kiểu điện tín — vẫn là câu nói trọn vẹn, đủ dấu câu.\n"
+                f"Trả về ĐÚNG {n_lines} dòng, mỗi dòng 'ID|bản đọc'. KHÔNG markdown, KHÔNG giải thích."
+            )
+        else:
+            system_prompt = (
+                f"Bạn là biên tập LỜI ĐỌC lồng tiếng. Với mỗi dòng bên dưới, viết BẢN ĐỌC gọn hơn từ BẢN ĐỦ, "
+                f"độ dài NẰM TRONG khoảng âm tiết cho phép của dòng đó (1 từ tiếng Việt = 1 âm tiết) — "
+                f"tức khoảng 70–85% BẢN ĐỦ, KHÔNG được ngắn hơn mức tối thiểu. "
+                f"GIỮ NGUYÊN: ý chính, hành động, sắc thái/so sánh, con số, tên riêng, phủ định và cách xưng hô. "
+                f"Được phép: bỏ từ đưa đẩy/đệm, rút gọn cấu trúc, thay cụm dài bằng cách nói ngắn tự nhiên. "
+                f"KHÔNG thêm ý mới, KHÔNG đổi nghĩa, KHÔNG viết cụt lủn kiểu điện tín. Văn nói tự nhiên, đủ dấu câu.\n"
+                f"Trả về ĐÚNG {n_lines} dòng, mỗi dòng 'ID|bản đọc'. KHÔNG markdown, KHÔNG giải thích."
+            )
+
+        user_lines = []
+        for idx, c in enumerate(candidates):
+            src_text = c.get("source") or c.get("seg", {}).get("text", "")
+            full_trans = c.get("full", "")
+            b_min = c.get("budgetMin", 2)
+            b_max = c.get("budget", b_min)
+            range_str = f"{b_min}–{b_max}" if b_min < b_max else f"≤{b_max}"
+            user_lines.append(f"{idx + 1}|[{range_str} âm tiết] GỐC: {src_text} | BẢN ĐỦ: {full_trans}")
+
+        user_prompt = "\n".join(user_lines)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        try:
+            content = self._call_llm(messages, model, url, temperature=0.3)
+            results = {}
+            for line in content.splitlines():
+                line = line.strip()
+                if "|" in line:
+                    parts = line.split("|", 1)
+                    try:
+                        line_num = int(parts[0].strip())
+                        if 1 <= line_num <= len(candidates):
+                            cand_id = str(candidates[line_num - 1].get("id") or candidates[line_num - 1].get("idx", ""))
+                            results[cand_id] = parts[1].strip()
+                    except Exception:
+                        pass
+            return results
+        except Exception as e:
+            err_str = str(e)
+            if "401" in err_str:
+                log_message(f"[Condense Warning] Không thể kết nối API rút gọn (401 Unauthorized). Bỏ qua condensation, giữ nguyên câu dịch gốc.")
+            else:
+                log_message(f"[Condense Warning] Lỗi khi rút gọn (deep={deep}): {err_str[:120]}")
+            return {}
+
+    def condense_with_budgets(self, items: List[Dict[str, Any]], opts: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Condense lines to fit target spoken duration."""
+        if not items:
+            return []
+        candidates = []
+        for it in items:
+            full = it.get("text") or it.get("translation") or ""
+            syl = vi_syllables_spoken(full)
+            b_syl = int(it.get("budgetSyl", 0))
+            if b_syl > 0 and syl > b_syl * 1.06:
+                candidates.append({
+                    "id": str(it.get("id", len(candidates) + 1)),
+                    "source": it.get("sourceText") or it.get("source", ""),
+                    "full": full,
+                    "budget": b_syl,
+                    "budgetMin": max(2, int(syl * 0.7)),
+                    "item": it
+                })
+
+        if candidates:
+            # Pass 1: normal condense
+            p1_res = self.condense_chunk(candidates, opts, deep=False)
+            deep_candidates = []
+            for c in candidates:
+                c_id = c["id"]
+                cur = p1_res.get(c_id, c["full"])
+                c["item"]["spokenText"] = cur
+                if vi_syllables_spoken(cur) > c["budget"] * 1.06:
+                    deep_candidates.append({
+                        "id": c_id,
+                        "source": c["source"],
+                        "full": c["full"],
+                        "budget": c["budget"],
+                        "budgetMin": max(2, int(vi_syllables_spoken(c["full"]) * 0.5)),
+                        "item": c["item"]
+                    })
+            if deep_candidates:
+                p2_res = self.condense_chunk(deep_candidates, opts, deep=True)
+                for dc in deep_candidates:
+                    dc_id = dc["id"]
+                    if dc_id in p2_res:
+                        dc["item"]["spokenText"] = p2_res[dc_id]
+        return items
+
+    def translate_segments(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate subtitle segments with Retranslation and Condensation matching node_helper.js."""
         segments = params.get("segments") or []
         target_lang = params.get("targetLang") or "vi"
+        source_lang = params.get("sourceLang") or "auto"
         model = params.get("model") or "deepseek-chat"
         url = params.get("url") or "https://api.deepseek.com/chat/completions"
         on_status = params.get("onStatus")
+        on_progress = params.get("onProgress")
         glossary = params.get("glossary") or []
 
         if on_status:
             on_status(f"Translating {len(segments)} segments to {target_lang} using {model}...")
 
-        # Prepare segment translation
-        results = []
-        for s in segments:
-            txt = s.get("text", "")
-            # Return translated segment structure
-            results.append({
-                **s,
-                "translation": s.get("translation") or txt
-            })
-        return results
+        # 1. Compute segment budgets
+        budgeted_segments = calculate_segment_budgets(segments)
+        
+        # 2. Batch chunking (40-60 segments)
+        batch_size = 50
+        chunks = [budgeted_segments[i:i + batch_size] for i in range(0, len(budgeted_segments), batch_size)]
+        total_batches = len(chunks)
 
-    def condense_with_budgets(self, items: List[Dict[str, Any]], opts: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Condense lines to fit target spoken duration."""
-        return items
+        results_map: Dict[str, str] = {}
+        suspect_ids: Set[str] = set()
+
+        system_prompt = (
+            f"Bạn là chuyên gia dịch thuật phụ đề phim chuyên nghiệp sang ngôn ngữ '{target_lang}'. "
+            f"Hãy dịch chính xác, tự nhiên theo ngữ cảnh đối thoại. "
+            f"Đầu vào là mảng JSON các câu [{{'id': ..., 'text': ...}}]. "
+            f"BẮT BUỘC trả về mảng JSON đúng định dạng [{{'id': ..., 'translation': '...'}}]. "
+            f"Không thêm markdown ngoài ```json, không giải thích."
+        )
+        if glossary:
+            glossary_text = "\n".join(f"- {g.get('src')}: {g.get('tgt')}" for g in glossary if g.get('src') and g.get('tgt'))
+            if glossary_text:
+                system_prompt += f"\n\nBẢNG THUẬT NGỮ BẮT BUỘC:\n{glossary_text}"
+
+        for b_idx, chunk in enumerate(chunks):
+            b_num = b_idx + 1
+            if on_status:
+                on_status(f"Translating chunk {b_num}/{total_batches} ({len(chunk)} segments)...")
+            if on_progress:
+                on_progress({"done": b_idx, "total": total_batches})
+
+            chunk_input = [{"id": str(s.get("id", idx + 1)), "text": s.get("text", "")} for idx, s in enumerate(chunk)]
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(chunk_input, ensure_ascii=False)}
+            ]
+
+            try:
+                content = self._call_llm(messages, model, url, temperature=0.3)
+                if "```json" in content:
+                    content = content.split("```json", 1)[1].split("```", 1)[0].strip()
+                elif "```" in content:
+                    content = content.split("```", 1)[1].split("```", 1)[0].strip()
+
+                parsed = None
+                try:
+                    parsed = json.loads(content)
+                except Exception:
+                    m = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"(?:translation|text|target|vi)"\s*:\s*"([^"]*)"\s*\}', content)
+                    if m:
+                        parsed = [{"id": item[0], "translation": item[1]} for item in m]
+
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict) and "id" in item:
+                            t_val = item.get("translation") or item.get("text") or ""
+                            results_map[str(item["id"])] = t_val
+                else:
+                    lines = [line.strip() for line in content.splitlines() if line.strip()]
+                    for idx, s in enumerate(chunk):
+                        s_id = str(s.get("id", idx + 1))
+                        if idx < len(lines):
+                            results_map[s_id] = lines[idx]
+
+            except Exception as e:
+                log_message(f"[Translate Error] Lỗi dịch chunk {b_num}: {e}")
+
+            # 3. Retranslation Loop (matching node_helper.js _needsRetry)
+            max_retry_rounds = 5
+            prev_missed_count = float("inf")
+            no_progress_count = 0
+
+            for retry_round in range(1, max_retry_rounds + 1):
+                missed_indices = []
+                for idx, s in enumerate(chunk):
+                    s_id = str(s.get("id", ""))
+                    cur_t = results_map.get(s_id, "")
+                    if self._needs_retry(s.get("text", ""), cur_t, source=source_lang, target=target_lang):
+                        missed_indices.append(idx)
+
+                if not missed_indices:
+                    break
+
+                if len(missed_indices) >= prev_missed_count:
+                    no_progress_count += 1
+                    if no_progress_count >= 2:
+                        for idx in missed_indices:
+                            suspect_ids.add(str(chunk[idx].get("id", "")))
+                        break
+                else:
+                    no_progress_count = 0
+                prev_missed_count = len(missed_indices)
+
+                if retry_round == max_retry_rounds:
+                    for idx in missed_indices:
+                        suspect_ids.add(str(chunk[idx].get("id", "")))
+
+                if on_status:
+                    on_status(f"Retranslating {len(missed_indices)} missed segments in chunk {b_num} (round {retry_round}/{max_retry_rounds})...")
+
+                missed_targets = [chunk[idx] for idx in missed_indices]
+                context_targets = self.build_retry_context(chunk, results_map, missed_indices)
+
+                retry_input = [{"id": str(s.get("id", "")), "text": s.get("text", "")} for s in missed_targets]
+                for c in context_targets:
+                    retry_input.append({
+                        "id": str(c.get("id", "")),
+                        "text": c.get("text", ""),
+                        "context": c.get("translation", ""),
+                        "isContextOnly": True
+                    })
+
+                retry_messages = [
+                    {"role": "system", "content": system_prompt + "\nLƯU Ý: Các câu có 'isContextOnly': true là ngữ cảnh tham khảo, KHÔNG dịch lại. CHỈ dịch và trả về các câu còn lại dưới dạng mảng JSON [{\"id\": ..., \"translation\": ...}]."},
+                    {"role": "user", "content": json.dumps(retry_input, ensure_ascii=False)}
+                ]
+
+                try:
+                    retry_content = self._call_llm(retry_messages, model, url, temperature=0.3)
+                    if "```json" in retry_content:
+                        retry_content = retry_content.split("```json", 1)[1].split("```", 1)[0].strip()
+                    elif "```" in retry_content:
+                        retry_content = retry_content.split("```", 1)[1].split("```", 1)[0].strip()
+
+                    retry_parsed = None
+                    try:
+                        retry_parsed = json.loads(retry_content)
+                    except Exception:
+                        m = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"(?:translation|text|target|vi)"\s*:\s*"([^"]*)"\s*\}', retry_content)
+                        if m:
+                            retry_parsed = [{"id": item[0], "translation": item[1]} for item in m]
+
+                    if isinstance(retry_parsed, list):
+                        for it in retry_parsed:
+                            if isinstance(it, dict) and "id" in it:
+                                it_id = str(it["id"])
+                                it_trans = (it.get("translation") or it.get("text") or "").strip()
+                                orig_s = next((s for s in missed_targets if str(s.get("id")) == it_id), None)
+                                if orig_s and it_trans and not self._needs_retry(orig_s.get("text", ""), it_trans, source=source_lang, target=target_lang):
+                                    results_map[it_id] = it_trans
+                except Exception as r_err:
+                    log_message(f"[Retranslate Error] Round {retry_round}: {r_err}")
+                    break
+
+        if on_progress:
+            on_progress({"done": total_batches, "total": total_batches})
+
+        # 4. Condensation Passes (Vietnamese spokenText)
+        spoken_map: Dict[str, str] = {}
+        if (target_lang or "").lower().startswith("vi"):
+            pass1_candidates = []
+            for s in budgeted_segments:
+                s_id = str(s.get("id", ""))
+                full_t = results_map.get(s_id) or s.get("translation") or s.get("text", "")
+                syl = vi_syllables_spoken(full_t)
+                b_syl = s.get("budgetSyl", 0)
+                if b_syl > 0 and syl > b_syl * 1.06:
+                    pass1_candidates.append({
+                        "id": s_id,
+                        "idx": s_id,
+                        "source": s.get("text", ""),
+                        "full": full_t,
+                        "budget": b_syl,
+                        "budgetMin": max(2, int(syl * 0.7))
+                    })
+
+            if pass1_candidates:
+                if on_status:
+                    on_status(f"Rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
+                p1_results = self.condense_chunk(pass1_candidates, {"model": model, "url": url}, deep=False)
+                for c in pass1_candidates:
+                    c_id = c["id"]
+                    if c_id in p1_results and p1_results[c_id]:
+                        spoken_map[c_id] = p1_results[c_id]
+
+                # Pass 2: Deep condensation
+                deep_candidates = []
+                for c in pass1_candidates:
+                    c_id = c["id"]
+                    cur_read = spoken_map.get(c_id, c["full"])
+                    if vi_syllables_spoken(cur_read) > c["budget"] * 1.06:
+                        deep_candidates.append({
+                            "id": c_id,
+                            "idx": c_id,
+                            "source": c["source"],
+                            "full": c["full"],
+                            "budget": c["budget"],
+                            "budgetMin": max(2, int(vi_syllables_spoken(c["full"]) * 0.5))
+                        })
+
+                if deep_candidates:
+                    if on_status:
+                        on_status(f"Rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vẫn vượt sức chứa khung hình...")
+                    p2_results = self.condense_chunk(deep_candidates, {"model": model, "url": url}, deep=True)
+                    for dc in deep_candidates:
+                        dc_id = dc["id"]
+                        if dc_id in p2_results and p2_results[dc_id]:
+                            spoken_map[dc_id] = p2_results[dc_id]
+
+        # 5. Build enriched segments and return structure
+        translations_list = []
+        statuses = {}
+        for s in budgeted_segments:
+            s_id = str(s.get("id", ""))
+            trans = results_map.get(s_id) or s.get("translation") or s.get("text", "")
+            s["translation"] = trans
+            s["subtitleText"] = s.get("subtitleText") or trans
+            s["spokenText"] = spoken_map.get(s_id) or s.get("spokenText") or trans
+            translations_list.append(trans)
+            statuses[s_id] = "suspect" if s_id in suspect_ids else ("ok" if trans and trans != s.get("text", "") else "source_fallback")
+
+        return {
+            "translations": translations_list,
+            "ids": [str(s.get("id")) for s in budgeted_segments],
+            "dubbing": spoken_map,
+            "budgets": {str(s.get("id")): s.get("budgetSyl", 0) for s in budgeted_segments},
+            "suspects": list(suspect_ids),
+            "statuses": statuses,
+            "segments": budgeted_segments
+        }
 
 # ==============================================================================
 # 8. TEXT-TO-SPEECH (TTS Router & 8 Engines)
@@ -2739,33 +3192,35 @@ def action_transcribe_video(data: Dict[str, Any], settings: Dict[str, Any]) -> L
         for i, s in enumerate(segments)
     ]
 
-def action_translate_segments(data: Dict[str, Any], settings: Dict[str, Any]) -> List[Dict[str, Any]]:
+def action_translate_segments(data: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
     segments = data.get("segments") or []
     target_lang = data.get("targetLang") or settings.get("translateTargetLang") or "vi"
-    api_key = data.get("apiKey") or settings.get("customApiKey") or settings.get("deepseekApiKey") or settings.get("openaiApiKey") or ""
-    endpoint = data.get("endpoint") or settings.get("customApiEndpoint") or ""
-    model = data.get("model") or settings.get("customModel") or settings.get("translateModel") or ""
-    preset = data.get("preset") or settings.get("translatePreset") or "ai_tong_hop_thong_minh"
+    source_lang = data.get("sourceLang") or settings.get("translateSourceLang") or "auto"
+    model = data.get("model") or settings.get("translateModel") or settings.get("customModel") or "deepseek-chat"
+    provider = data.get("provider") or settings.get("translateProvider") or "deepseek"
+    api_key = (
+        data.get("apiKey")
+        or settings.get("customApiKey")
+        or settings.get("deepseekApiKey")
+        or settings.get("openaiApiKey")
+        or "dummy"
+    )
+    url = data.get("url") or settings.get("customApiEndpoint") or settings.get("deepseekBaseUrl") or ""
+    if not url:
+        conf = resolve_provider(model, provider)
+        url = conf.get("url", "https://api.deepseek.com/chat/completions")
 
-    try:
-        from helper_service import translate_and_clean_subtitles
-        _, cleaned = translate_and_clean_subtitles(
-            segments=segments,
-            target_lang=target_lang,
-            preset=preset,
-            model=model,
-            api_key=api_key,
-            custom_endpoint=endpoint,
-            custom_prompt=data.get("customPrompt")
-        )
-        return cleaned
-    except Exception:
-        translator = DeepSeekTranslator(api_key)
-        return translator.translate_segments({
-            "segments": segments,
-            "targetLang": target_lang,
-            "glossary": data.get("glossary") or []
-        })
+    translator = DeepSeekTranslator(api_key)
+    return translator.translate_segments({
+        "segments": segments,
+        "targetLang": target_lang,
+        "sourceLang": source_lang,
+        "model": model,
+        "url": url,
+        "glossary": data.get("glossary") or [],
+        "preset": data.get("preset") or "ai_tong_hop_thong_minh",
+        "onStatus": lambda msg: log_message(f"[Translate] {msg}")
+    })
 
 def action_fetch_translate_models(data: Dict[str, Any], settings: Dict[str, Any]) -> List[Dict[str, str]]:
     endpoint = data.get("endpoint") or settings.get("customApiEndpoint") or ""
@@ -2840,7 +3295,27 @@ def action_verify_dubbing_fit(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def action_condense_lines(data: Dict[str, Any], settings: Dict[str, Any]) -> List[Dict[str, Any]]:
     items = data.get("items") or []
-    return items
+    target_lang = data.get("targetLang") or settings.get("translateTargetLang") or "vi"
+    model = data.get("model") or settings.get("translateModel") or settings.get("customModel") or "deepseek-chat"
+    provider = data.get("provider") or settings.get("translateProvider") or "deepseek"
+    api_key = (
+        data.get("apiKey")
+        or settings.get("customApiKey")
+        or settings.get("deepseekApiKey")
+        or settings.get("openaiApiKey")
+        or "dummy"
+    )
+    url = data.get("url") or settings.get("customApiEndpoint") or settings.get("deepseekBaseUrl") or ""
+    if not url:
+        conf = resolve_provider(model, provider)
+        url = conf.get("url", "https://api.deepseek.com/chat/completions")
+
+    translator = DeepSeekTranslator(api_key)
+    return translator.condense_with_budgets(items, {
+        "targetLang": target_lang,
+        "model": model,
+        "url": url
+    })
 
 def action_get_vi_voices(data: Optional[Dict[str, Any]] = None, settings: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     json_path = (data or {}).get("jsonPath") or (settings or {}).get("voiceJsonPath")

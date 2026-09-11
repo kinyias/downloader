@@ -11,7 +11,7 @@ import subprocess
 import requests
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable, Union, Tuple
+from typing import List, Dict, Any, Optional, Callable, Union, Tuple, Set
 
 # Add workspace root to sys.path to import node_helper
 WORKSPACE_ROOT = str(Path(__file__).resolve().parent)
@@ -94,7 +94,12 @@ def load_prompt_by_preset(preset: str = "ai_tong_hop_thong_minh", target_lang: s
 
 def _log(msg: str):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] [Helper] {msg}", flush=True)
+    formatted = f"[{ts}] [Helper] {msg}"
+    try:
+        from tqdm import tqdm
+        tqdm.write(formatted)
+    except Exception:
+        print(formatted, flush=True)
 
 # In-memory background job manager
 JOBS: Dict[str, Dict[str, Any]] = {}
@@ -492,6 +497,82 @@ def chunk_segments_for_translation(segments: List[Dict[str, Any]],
 
     return chunks
 
+def is_cjk_char(ch: str) -> bool:
+    """Check if a character belongs to CJK (Chinese, Japanese, Korean) Unicode ranges."""
+    cp = ord(ch)
+    return (0x4E00 <= cp <= 0x9FFF) or (0x3400 <= cp <= 0x4DBF) or (0x3040 <= cp <= 0x309F) or (0x30A0 <= cp <= 0x30FF) or (0xAC00 <= cp <= 0xD7AF)
+
+def cjk_ratio(text: str) -> float:
+    """Calculate ratio of CJK characters in text."""
+    if not text:
+        return 0.0
+    cjk = sum(1 for ch in text if is_cjk_char(ch))
+    return cjk / max(1, len(text.strip()))
+
+def needs_retry(orig_text: str, trans_text: str, source_lang: str = "auto", target_lang: str = "vi") -> bool:
+    """
+    Check if a translated segment needs retranslation matching node_helper.js:
+    - Empty or whitespace translation -> True
+    - Identical to original (LLM didn't translate) -> True (unless orig is only numbers/symbols)
+    - Source is CJK (zh/ja/ko/auto) but target is non-CJK (vi/en) and trans still contains >= 5% CJK -> True
+    - Target is different from source, and words match >= 4 words -> True
+    """
+    orig = (orig_text or "").strip()
+    trans = (trans_text or "").strip()
+    if not orig:
+        return False
+    has_letters = bool(re.search(r'[a-zA-ZÀ-ỹ\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', orig))
+    if not has_letters:
+        return False
+    if not trans:
+        return True
+    if orig == trans:
+        return True
+    
+    src = (source_lang or "auto").lower()
+    tgt = (target_lang or "vi").lower()
+    if src in ["auto", "zh", "ja", "ko", ""]:
+        if tgt not in ["zh", "ja", "ko"]:
+            if cjk_ratio(trans) >= 0.05:
+                return True
+    else:
+        if src != tgt:
+            w_orig = [w.lower() for w in orig.split() if w]
+            w_trans = [w.lower() for w in trans.split() if w]
+            if len(w_orig) >= 4 and w_orig == w_trans:
+                return True
+    return False
+
+def build_retry_context(chunk: List[Dict[str, Any]], 
+                        results_map: Dict[str, str], 
+                        missed_ids: Set[str], 
+                        max_context: int = 8) -> List[Dict[str, Any]]:
+    """
+    Build context segments around missed segments matching node_helper.js:
+    Takes neighbor segments (i-2, i-1, i+1) that were successfully translated,
+    marking them as contextOnly: True.
+    """
+    context_map: Dict[str, Dict[str, Any]] = {}
+    n = len(chunk)
+    for idx, s in enumerate(chunk):
+        s_id = str(s.get("id", ""))
+        if s_id in missed_ids:
+            for offset in [-2, -1, 1]:
+                neighbor_idx = idx + offset
+                if 0 <= neighbor_idx < n:
+                    neighbor = chunk[neighbor_idx]
+                    n_id = str(neighbor.get("id", ""))
+                    if n_id not in missed_ids and n_id not in context_map:
+                        trans = results_map.get(n_id)
+                        if trans and trans != neighbor.get("text", ""):
+                            context_map[n_id] = {
+                                "id": n_id,
+                                "text": neighbor.get("text", ""),
+                                "translation": trans,
+                                "contextOnly": True
+                            }
+    return list(context_map.values())[:max_context]
+
 def count_vi_syllables(text: str) -> int:
     """Count spoken syllables in Vietnamese matching node_helper.js."""
     if not text:
@@ -871,63 +952,177 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
                     if idx < len(lines):
                         results_map[s_id] = lines[idx]
 
-            # Kiểm tra và thực hiện rút gọn lời đọc ngay sau mỗi batch hoàn thành
-            if is_vietnamese:
-                pass1_candidates = []
+            # Retranslate loop for missed/flawed segments in this batch (matching node_helper.js _needsRetry)
+            max_retry_rounds = 3
+            for retry_round in range(1, max_retry_rounds + 1):
+                missed_segs = []
                 for s in chunk:
                     s_id = str(s.get("id", ""))
-                    budgeted_s = budgeted_segments_map.get(s_id, s)
-                    full_trans = results_map.get(s_id) or s.get("translation") or s.get("text", "")
-                    syl = count_vi_syllables(full_trans)
-                    b_syl = budgeted_s.get("budgetSyl", 0)
-                    if b_syl > 0 and syl > b_syl * 1.06:
-                        pass1_candidates.append({"seg": budgeted_s, "full": full_trans, "idx": s_id})
+                    cur_trans = results_map.get(s_id, "")
+                    if needs_retry(s.get("text", ""), cur_trans, source_lang=source_lang, target_lang=target_lang):
+                        missed_segs.append(s)
 
-                if pass1_candidates:
-                    _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
-                    if job_id:
-                        update_job(
-                            job_id,
-                            int(pct_so_far * 0.95),
-                            f"Batch {batch_num}/{total_batches}: Đang rút gọn lời đọc cho {len(pass1_candidates)} câu...",
-                        )
+                if not missed_segs:
+                    break
 
-                    p1_results = run_condense_chunk(pass1_candidates, chat_url, headers, model, deep=False)
-                    for c in pass1_candidates:
-                        c_id = str(c["seg"]["id"])
-                        if c_id in p1_results and p1_results[c_id]:
-                            spoken_map[c_id] = p1_results[c_id]
+                _log(f"  [Retranslate Batch {batch_num}] Phát hiện {len(missed_segs)}/{len(chunk)} câu cần dịch lại (vòng {retry_round}/{max_retry_rounds})...")
+                if job_id:
+                    update_job(
+                        job_id,
+                        pct,
+                        f"Đang dịch lại {len(missed_segs)} câu cần bổ sung/sửa ở batch {batch_num} (vòng {retry_round}/{max_retry_rounds})...",
+                        batch_info={
+                            "totalBatches": total_batches,
+                            "currentBatch": batch_num,
+                            "totalSegments": total_segs,
+                            "completedSegments": max(0, batch_start_seg - 1),
+                            "batchStartSeg": batch_start_seg,
+                            "batchEndSeg": batch_end_seg
+                        }
+                    )
 
-                    # Pass 2: Rút gọn sâu (tối đa 50%) cho những câu trong batch vẫn còn vượt thời lượng hình
-                    deep_candidates = []
-                    for c in pass1_candidates:
-                        c_id = str(c["seg"]["id"])
-                        cur_read = spoken_map.get(c_id) or c["full"]
-                        cur_syl = count_vi_syllables(cur_read)
-                        b_syl = c["seg"].get("budgetSyl", 0)
-                        if b_syl > 0 and cur_syl > b_syl * 1.06:
-                            deep_candidates.append({
-                                "seg": c["seg"],
-                                "full": c["full"],
-                                "current_read": cur_read,
-                                "idx": c_id
-                            })
+                missed_ids = {str(s.get("id", "")) for s in missed_segs}
+                context_segs = build_retry_context(chunk, results_map, missed_ids, max_context=6)
 
-                    if deep_candidates:
-                        _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vượt thời lượng hình...")
-                        deep_results = run_condense_chunk(deep_candidates, chat_url, headers, model, deep=True)
-                        for c in deep_candidates:
-                            c_id = str(c["seg"]["id"])
-                            if c_id in deep_results and deep_results[c_id]:
-                                condensed_text = deep_results[c_id]
-                                orig_syl = count_vi_syllables(c["full"])
-                                new_syl = count_vi_syllables(condensed_text)
-                                if new_syl < orig_syl:
-                                    spoken_map[c_id] = condensed_text
-                                    _log(
-                                        f"    • Segment #{c_id}: BẢN ĐỦ ({orig_syl} âm tiết) ➔ "
-                                        f"RÚT GỌN SÂU ({new_syl} âm tiết / Ngân sách {c['seg'].get('budgetSyl')} âm tiết): '{condensed_text}'"
-                                    )
+                retry_input = []
+                for s in missed_segs:
+                    retry_input.append({"id": str(s.get("id", "")), "text": s.get("text", "")})
+                for c in context_segs:
+                    retry_input.append({
+                        "id": str(c.get("id", "")),
+                        "text": c.get("text", ""),
+                        "context": c.get("translation", ""),
+                        "isContextOnly": True
+                    })
+
+                retry_prompt_addon = (
+                    "\nLƯU Ý: Các câu có 'isContextOnly': true là ngữ cảnh lân cận để bạn hiểu mạch truyện, "
+                    "tuyệt đối KHÔNG dịch lại những câu này. CHỈ dịch và trả về các câu còn lại dưới dạng mảng JSON "
+                    "[{\"id\": ..., \"translation\": ...}]."
+                )
+
+                retry_payload = {
+                    "model": model or "gemini-lite",
+                    "messages": [
+                        {"role": "system", "content": prompt_text + retry_prompt_addon},
+                        {"role": "user", "content": json.dumps(retry_input, ensure_ascii=False)}
+                    ],
+                    "temperature": 0.3,
+                    "stream": False
+                }
+
+                try:
+                    retry_resp = requests.post(chat_url, headers=headers, json=retry_payload, timeout=180)
+                    if retry_resp.status_code == 200:
+                        retry_text = (retry_resp.text or "").strip()
+                        retry_content = ""
+                        if retry_resp.headers.get("content-type", "").startswith("text/event-stream") or retry_text.startswith("data:"):
+                            parts = []
+                            for line in retry_text.splitlines():
+                                line = line.strip()
+                                if line.startswith("data:") and line[5:].strip() != "[DONE]":
+                                    try:
+                                        delta = json.loads(line[5:].strip()).get("choices", [{}])[0].get("delta", {})
+                                        if delta.get("content"):
+                                            parts.append(delta["content"])
+                                    except Exception:
+                                        pass
+                            retry_content = "".join(parts).strip()
+                        else:
+                            try:
+                                retry_data = retry_resp.json()
+                                chs = retry_data.get("choices") or []
+                                if chs:
+                                    retry_content = chs[0].get("message", {}).get("content", "").strip()
+                            except Exception:
+                                pass
+
+                        if retry_content:
+                            if "```json" in retry_content:
+                                retry_content = retry_content.split("```json", 1)[1].split("```", 1)[0].strip()
+                            elif "```" in retry_content:
+                                retry_content = retry_content.split("```", 1)[1].split("```", 1)[0].strip()
+
+                            retry_parsed = None
+                            try:
+                                retry_parsed = json.loads(retry_content)
+                            except Exception:
+                                m_matches = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"(?:translation|text|target|vi)"\s*:\s*"([^"]*)"\s*\}', retry_content)
+                                if m_matches:
+                                    retry_parsed = [{"id": m[0], "translation": m[1]} for m in m_matches]
+
+                            fixed_count = 0
+                            if isinstance(retry_parsed, list):
+                                for it in retry_parsed:
+                                    if isinstance(it, dict) and "id" in it:
+                                        it_id = str(it["id"])
+                                        it_trans = (it.get("translation") or it.get("text") or it.get("target") or it.get("vi") or "").strip()
+                                        orig_seg = next((s for s in missed_segs if str(s.get("id")) == it_id), None)
+                                        if orig_seg and it_trans and not needs_retry(orig_seg.get("text", ""), it_trans, source_lang, target_lang):
+                                            results_map[it_id] = it_trans
+                                            fixed_count += 1
+                            _log(f"  [Retranslate Batch {batch_num}] Đã khắc phục thành công {fixed_count}/{len(missed_segs)} câu ở vòng {retry_round}.")
+                except Exception as retry_err:
+                    _log(f"  [Retranslate Warning] Lỗi ở vòng {retry_round}: {retry_err}")
+                    break
+
+            # Kiểm tra và thực hiện rút gọn lời đọc ngay sau mỗi batch hoàn thành
+            # if is_vietnamese:
+            #     pass1_candidates = []
+            #     for s in chunk:
+            #         s_id = str(s.get("id", ""))
+            #         budgeted_s = budgeted_segments_map.get(s_id, s)
+            #         full_trans = results_map.get(s_id) or s.get("translation") or s.get("text", "")
+            #         syl = count_vi_syllables(full_trans)
+            #         b_syl = budgeted_s.get("budgetSyl", 0)
+            #         if b_syl > 0 and syl > b_syl * 1.06:
+            #             pass1_candidates.append({"seg": budgeted_s, "full": full_trans, "idx": s_id})
+
+            #     if pass1_candidates:
+            #         _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn lời đọc cho {len(pass1_candidates)} câu vượt khung thời lượng...")
+            #         if job_id:
+            #             update_job(
+            #                 job_id,
+            #                 int(pct_so_far * 0.95),
+            #                 f"Batch {batch_num}/{total_batches}: Đang rút gọn lời đọc cho {len(pass1_candidates)} câu...",
+            #             )
+
+            #         p1_results = run_condense_chunk(pass1_candidates, chat_url, headers, model, deep=False)
+            #         for c in pass1_candidates:
+            #             c_id = str(c["seg"]["id"])
+            #             if c_id in p1_results and p1_results[c_id]:
+            #                 spoken_map[c_id] = p1_results[c_id]
+
+            #         # Pass 2: Rút gọn sâu (tối đa 50%) cho những câu trong batch vẫn còn vượt thời lượng hình
+            #         deep_candidates = []
+            #         for c in pass1_candidates:
+            #             c_id = str(c["seg"]["id"])
+            #             cur_read = spoken_map.get(c_id) or c["full"]
+            #             cur_syl = count_vi_syllables(cur_read)
+            #             b_syl = c["seg"].get("budgetSyl", 0)
+            #             if b_syl > 0 and cur_syl > b_syl * 1.06:
+            #                 deep_candidates.append({
+            #                     "seg": c["seg"],
+            #                     "full": c["full"],
+            #                     "current_read": cur_read,
+            #                     "idx": c_id
+            #                 })
+
+            #         if deep_candidates:
+            #             _log(f"--> [Batch {batch_num}/{total_batches}] Rút gọn sâu (tối đa 50%) cho {len(deep_candidates)} câu vượt thời lượng hình...")
+            #             deep_results = run_condense_chunk(deep_candidates, chat_url, headers, model, deep=True)
+            #             for c in deep_candidates:
+            #                 c_id = str(c["seg"]["id"])
+            #                 if c_id in deep_results and deep_results[c_id]:
+            #                     condensed_text = deep_results[c_id]
+            #                     orig_syl = count_vi_syllables(c["full"])
+            #                     new_syl = count_vi_syllables(condensed_text)
+            #                     if new_syl < orig_syl:
+            #                         spoken_map[c_id] = condensed_text
+            #                         _log(
+            #                             f"    • Segment #{c_id}: BẢN ĐỦ ({orig_syl} âm tiết) ➔ "
+            #                             f"RÚT GỌN SÂU ({new_syl} âm tiết / Ngân sách {c['seg'].get('budgetSyl')} âm tiết): '{condensed_text}'"
+            #                         )
 
             batch_dur = time.perf_counter() - batch_t0
             completed_so_far = batch_end_seg

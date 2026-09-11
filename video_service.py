@@ -105,6 +105,15 @@ def format_size(bytes_num: int) -> str:
     return f"{bytes_num:.1f} PB"
 
 
+def _safe_log(msg: str) -> None:
+    """Safely log a message without clashing with active tqdm progress bars."""
+    try:
+        from tqdm import tqdm
+        tqdm.write(str(msg))
+    except Exception:
+        print(str(msg), flush=True)
+
+
 def natural_sort_key(s: str) -> list:
     """Natural sorting key: e.g. tap_1, tap_2, ..., tap_10, tap_11."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", str(s))]
@@ -887,6 +896,8 @@ def run_single_pass_encode(
     cut_end_seconds: float = 0.0,
     mirror: bool = False,
     video_speed: float = 0.9,
+    progress_scale: float = 1.0,
+    progress_base: float = 0.0,
 ) -> None:
     """Encode all clips in a single direct pass using -filter_complex_script for 100% stability & high quality."""
     script_content = generate_batch_filter_script(
@@ -984,7 +995,9 @@ def run_single_pass_encode(
                     out_us = int(v)
                     cur_batch_sec = min(batch_dur, out_us / 1000000.0)
                     cur_overall_sec = prev_processed_dur + cur_batch_sec
-                    pct = min(99.0, max(0.0, (cur_overall_sec / total_effective_dur) * 100.0))
+                    raw_ratio = min(1.0, max(0.0, cur_overall_sec / total_effective_dur))
+                    scaled_pct = progress_base + (raw_ratio * progress_scale * 100.0)
+                    pct = min(progress_base + progress_scale * 100.0 - 0.1, max(progress_base, scaled_pct))
                     now = time.time()
                     if now - last_update_time >= 0.25:
                         last_update_time = now
@@ -1010,6 +1023,11 @@ def run_single_pass_encode(
                 pass
 
         proc.wait()
+        update_task(
+            progress=round(progress_base + progress_scale * 100.0, 1),
+            speed="-",
+            eta="-",
+        )
 
         with MERGE_LOCK:
             task_status = MERGE_TASKS.get(task_id, {})
@@ -1164,6 +1182,32 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         target_w, target_h = determine_target_resolution(probed_infos, resolution, custom_resolution)
         target_fps = determine_target_fps(probed_infos, fps)
 
+        # Determine active features and dynamic phase structure
+        upload_to_storage = options.get("upload_to_storage", True) in (True, "true", "True", 1, "1")
+        generate_subtitles = options.get("generate_subtitles", True) in (True, "true", "True", 1, "1")
+        translate_subtitles = options.get("translate_subtitles", True) in (True, "true", "True", 1, "1") if generate_subtitles else False
+        enable_dubbing = options.get("dubbing", True) in (True, "true", "True", 1, "1") if translate_subtitles else False
+        storage_api_token = options.get("storage_token") or os.getenv("STORAGE_TO_API_TOKEN")
+
+        if enable_dubbing:
+            phase_1 = "🎬 [1/4] Ghép video"
+            phase_2 = "📝 [2/4] Phụ đề & Dịch thuật"
+            phase_3 = "🎙️ [3/4] Lồng tiếng VieNeu-TTS"
+            phase_4 = "🎬 [4/4] Render & Xuất bản"
+            enc_scale = 0.40
+        elif generate_subtitles:
+            phase_1 = "🎬 [1/2] Ghép video"
+            phase_2 = "📝 [2/2] Phụ đề & Dịch thuật"
+            phase_3 = ""
+            phase_4 = ""
+            enc_scale = 0.60
+        else:
+            phase_1 = "🎬 Ghép video"
+            phase_2 = ""
+            phase_3 = ""
+            phase_4 = ""
+            enc_scale = 0.90
+
         gpu_pref = str(options.get("gpu", "nvenc")).lower()
         chosen_encoder, enc_flags, bitrate_flags, display_label = build_encoding_args(
             codec=codec,
@@ -1173,6 +1217,8 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
 
         speed_label = f" (Tốc độ {video_speed:.2f}x)" if abs(video_speed - 1.0) > 0.005 else ""
         update_task(
+            phase=phase_1,
+            progress=0.0,
             message=f"Đang ghép 1 lần trực tiếp ({len(valid_files)} video){speed_label} với {display_label} ({target_w}x{target_h})...",
             gpu_encoder=display_label,
         )
@@ -1201,13 +1247,16 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                 cut_end_seconds=cut_end_seconds,
                 mirror=mirror,
                 video_speed=video_speed,
+                progress_scale=enc_scale,
+                progress_base=0.0,
             )
         except Exception as encode_err:
             err_text = str(encode_err)
             if any(k in err_text.lower() for k in ["mfx", "qsv", "nvenc", "cuda", "amf", "videotoolbox", "opening encoder", "encoder for output stream"]):
-                print(f"[Encoder Fallback] GPU encoder failed ({err_text[:100]}). Falling back to CPU libx264...")
+                _safe_log(f"[Encoder Fallback] GPU encoder failed ({err_text[:100]}). Falling back to CPU libx264...")
                 update_task(
-                    message="Bộ mã hóa GPU không khởi động được. Đang tự động chuyển sang CPU (libx264) để hoàn tất ghép video...",
+                    phase=phase_1,
+                    message="Bộ mã hóa GPU không khởi động được. Đang chuyển sang CPU (libx264)...",
                     gpu_encoder="CPU Software (libx264)"
                 )
                 cpu_encoder, cpu_enc_flags, cpu_bitrate_flags, cpu_label = build_encoding_args(
@@ -1236,6 +1285,8 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                     cut_end_seconds=cut_end_seconds,
                     mirror=mirror,
                     video_speed=video_speed,
+                    progress_scale=enc_scale,
+                    progress_base=0.0,
                 )
             else:
                 raise encode_err
@@ -1246,17 +1297,16 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
 
         out_size = output_path.stat().st_size if output_path.exists() else 0
+        enc_done_pct = round(enc_scale * 100.0, 1)
         update_task(
-            progress=100,
-            eta="0s",
-            message="Ghép video thành công! Đang chuẩn bị tải lên storage.to...",
+            phase=phase_1,
+            progress=enc_done_pct,
+            speed="-",
+            eta="-",
+            message="Ghép video hoàn tất!",
             output_size=out_size,
             output_size_str=format_size(out_size),
         )
-
-        upload_to_storage = options.get("upload_to_storage", True) in (True, "true", "True", 1, "1")
-        generate_subtitles = options.get("generate_subtitles", True) in (True, "true", "True", 1, "1")
-        storage_api_token = options.get("storage_token") or os.getenv("STORAGE_TO_API_TOKEN")
 
         video_url = None
         srt_url = None
@@ -1272,12 +1322,21 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         # 1. Tải video đã ghép lên storage.to
         if upload_to_storage and output_path.exists():
             try:
-                update_task(message="Đang kết nối và tải video lên storage.to...")
+                active_phase = phase_2 if (enable_dubbing or generate_subtitles) else phase_1
+                update_task(phase=active_phase, message="Đang kết nối và tải video gốc lên storage.to...")
                 from storage_service import upload_file_to_storage_to
 
                 def _upload_video_cb(pct, msg):
+                    if enable_dubbing:
+                        up_p = 40.0 + (pct / 100.0) * 3.0
+                    elif generate_subtitles:
+                        up_p = 60.0 + (pct / 100.0) * 10.0
+                    else:
+                        up_p = 90.0 + (pct / 100.0) * 10.0
                     update_task(
-                        message=f"Đang tải video lên storage.to ({pct:.0f}%)...",
+                        phase=active_phase,
+                        progress=round(up_p, 1),
+                        message=f"Đang tải video gốc lên storage.to ({pct:.0f}%)...",
                         upload_progress=pct,
                     )
 
@@ -1288,26 +1347,25 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                 )
                 video_url = storage_res.get("url")
                 storage_info["video"] = storage_res
+                done_v_p = 43.0 if enable_dubbing else (70.0 if generate_subtitles else 100.0)
                 update_task(
+                    phase=active_phase,
+                    progress=done_v_p,
                     video_url=video_url,
-                    message=f"Đã tải video lên storage.to: {video_url}",
+                    message="Đã tải video gốc lên storage.to",
                 )
-                print("\n" + "=" * 65, flush=True)
-                print("🎬 [STORAGE.TO - VIDEO FULL] Tải lên thành công!", flush=True)
-                print(f"🌐 Link Video : \033[1;35m{video_url}\033[0m", flush=True)
-                print("=" * 65 + "\n", flush=True)
             except Exception as up_err:
-                print(f"[Storage.to Error] Lỗi tải video lên storage.to: {up_err}", flush=True)
+                _safe_log(f"[Storage.to Error] Lỗi tải video lên storage.to: {up_err}")
                 update_task(upload_video_error=str(up_err))
 
         # 2. Nhận diện giọng nói với CapCut ASR & xuất file phụ đề .srt
         if generate_subtitles and output_path.exists():
             try:
-                update_task(message="Đang trích xuất phụ đề với CapCut ASR...")
+                update_task(phase=phase_2, message="Đang trích xuất phụ đề với CapCut ASR...")
                 from helper_service import transcribe_video_to_srt
 
                 def _asr_cb(msg):
-                    update_task(message=msg)
+                    update_task(phase=phase_2, message=f"[CapCut ASR] {msg}")
 
                 capcut_tdid = options.get("capcut_tdid")
                 source_lang = options.get("source_lang", "auto")
@@ -1320,20 +1378,23 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                     on_status=_asr_cb,
                 )
                 srt_path = str(srt_file)
+                asr_done_p = 48.0 if enable_dubbing else 80.0
                 update_task(
+                    phase=phase_2,
+                    progress=asr_done_p,
                     srt_path=srt_path,
                     subtitle_segments_count=len(segs),
-                    message=f"Đã trích xuất phụ đề ({len(segs)} câu): {srt_file.name}",
+                    message=f"Đã trích xuất phụ đề ({len(segs)} câu)",
                 )
 
                 # 3. Tải file phụ đề gốc (.srt) lên storage.to
                 if upload_to_storage and srt_file.exists():
                     try:
-                        update_task(message="Đang tải file phụ đề (.srt) lên storage.to...")
+                        update_task(phase=phase_2, message="Đang tải phụ đề gốc lên storage.to...")
                         from storage_service import upload_file_to_storage_to
 
                         def _upload_srt_cb(pct, msg):
-                            update_task(message=f"Đang tải phụ đề lên storage.to ({pct:.0f}%)...")
+                            update_task(phase=phase_2, message=f"Đang tải phụ đề gốc lên storage.to ({pct:.0f}%)...")
 
                         srt_storage_res = upload_file_to_storage_to(
                             srt_file,
@@ -1343,26 +1404,22 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                         srt_url = srt_storage_res.get("url")
                         storage_info["subtitle"] = srt_storage_res
                         update_task(
+                            phase=phase_2,
                             srt_url=srt_url,
-                            message=f"Đã tải phụ đề lên storage.to: {srt_url}",
+                            message="Đã tải phụ đề gốc lên storage.to",
                         )
-                        print("\n" + "=" * 65, flush=True)
-                        print("📝 [STORAGE.TO - SUBTITLE GỐC] Tải lên thành công!", flush=True)
-                        print(f"🌐 Link Sub Gốc : \033[1;35m{srt_url}\033[0m", flush=True)
-                        print("=" * 65 + "\n", flush=True)
                     except Exception as srt_up_err:
-                        print(f"[Storage.to Error] Lỗi tải phụ đề: {srt_up_err}", flush=True)
+                        _safe_log(f"[Storage.to Error] Lỗi tải phụ đề: {srt_up_err}")
                         update_task(upload_srt_error=str(srt_up_err))
 
                 # 4. Dịch phụ đề sang tiếng Việt & Kiểm tra loại bỏ chữ Trung, lọc 1 từ, xóa dấu câu cuối
-                translate_subtitles = options.get("translate_subtitles", True) in (True, "true", "True", 1, "1")
                 if translate_subtitles and segs:
                     try:
-                        update_task(message="Đang dịch phụ đề sang tiếng Việt & kiểm tra...")
+                        update_task(phase=phase_2, message="Đang dịch phụ đề sang tiếng Việt...")
                         from helper_service import translate_and_clean_subtitles
 
                         def _trans_cb(msg):
-                            update_task(message=msg)
+                            update_task(phase=phase_2, message=f"[Dịch phụ đề] {msg}")
 
                         trans_prompt = options.get("translate_prompt") or options.get("prompt") or "ai_tong_hop_thong_minh"
                         custom_endpoint = options.get("custom_endpoint") or options.get("endpoint")
@@ -1383,19 +1440,22 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
 
                         if translated_file and translated_file.exists():
                             translated_srt_path = str(translated_file)
+                            trans_done_p = 53.0 if enable_dubbing else 95.0
                             update_task(
+                                phase=phase_2,
+                                progress=trans_done_p,
                                 translated_srt_path=translated_srt_path,
                                 translated_segments_count=len(cleaned_segs),
-                                message=f"Đã dịch phụ đề tiếng Việt ({len(cleaned_segs)} câu): {translated_file.name}",
+                                message=f"Đã dịch phụ đề tiếng Việt ({len(cleaned_segs)} câu)",
                             )
 
                             # 5. Tải file phụ đề dịch tiếng Việt (.srt) lên storage.to
                             if upload_to_storage:
                                 try:
-                                    update_task(message="Đang tải phụ đề tiếng Việt (.srt) lên storage.to...")
+                                    update_task(phase=phase_2, message="Đang tải phụ đề tiếng Việt lên storage.to...")
 
                                     def _upload_vi_srt_cb(pct, msg):
-                                        update_task(message=f"Đang tải phụ đề tiếng Việt lên storage.to ({pct:.0f}%)...")
+                                        update_task(phase=phase_2, message=f"Đang tải phụ đề tiếng Việt lên storage.to ({pct:.0f}%)...")
 
                                     vi_srt_storage_res = upload_file_to_storage_to(
                                         translated_file,
@@ -1404,24 +1464,28 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     )
                                     translated_srt_url = vi_srt_storage_res.get("url")
                                     storage_info["translated_subtitle"] = vi_srt_storage_res
+                                    phase2_final_p = 55.0 if enable_dubbing else 100.0
                                     update_task(
+                                        phase=phase_2,
+                                        progress=phase2_final_p,
                                         translated_srt_url=translated_srt_url,
-                                        message=f"Đã tải phụ đề tiếng Việt lên storage.to: {translated_srt_url}",
+                                        message="Đã tải phụ đề tiếng Việt lên storage.to",
                                     )
-                                    print("\n" + "=" * 65, flush=True)
-                                    print("🇻🇳 [STORAGE.TO - SUBTITLE TIẾNG VIỆT] Tải lên thành công!", flush=True)
-                                    print(f"🌐 Link Sub Dịch : \033[1;32m{translated_srt_url}\033[0m", flush=True)
-                                    print("=" * 65 + "\n", flush=True)
                                 except Exception as vi_up_err:
-                                    print(f"[Storage.to Error] Lỗi tải phụ đề tiếng Việt: {vi_up_err}", flush=True)
+                                    _safe_log(f"[Storage.to Error] Lỗi tải phụ đề tiếng Việt: {vi_up_err}")
                                     update_task(upload_translated_srt_error=str(vi_up_err))
 
                             # 6. Lồng tiếng (Dubbing) video với VieNeu-TTS & Căn chỉnh âm thanh
-                            enable_dubbing = options.get("dubbing", True) in (True, "true", "True", 1, "1")
                             dubbing_segs = cleaned_segs if cleaned_segs else segs
                             if enable_dubbing and dubbing_segs and output_path.exists():
                                 try:
-                                    update_task(message="Đang chuẩn bị lồng tiếng với VieNeu-TTS...")
+                                    update_task(
+                                        phase=phase_3,
+                                        progress=55.0,
+                                        speed="-",
+                                        eta="-",
+                                        message="Đang chuẩn bị lồng tiếng với VieNeu-TTS...",
+                                    )
                                     import vieneu_tts
 
                                     tts_voice = options.get("tts_voice") or options.get("voice") or "Ngọc Huyền"
@@ -1431,7 +1495,6 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     video_meta = probe_video_info(output_path)
                                     video_duration = video_meta.get("duration") or 0.0
 
-                                    # Nếu audio bị thừa thời lượng, VieNeu-TTS sẽ tự động gen lại audio mà không dịch rút gọn lại văn bản
                                     chat_url = ""
                                     headers = {"Content-Type": "application/json"}
                                     if custom_endpoint:
@@ -1450,7 +1513,14 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     dest_dubbed_audio = output_path.with_name(f"{output_path.stem}_dubbing.mp3")
 
                                     def _dub_progress_cb(pct, msg):
-                                        update_task(message=f"[Lồng tiếng] {msg}")
+                                        scaled_dub_p = round(55.0 + (pct / 100.0) * 23.0, 1)
+                                        update_task(
+                                            phase=phase_3,
+                                            progress=scaled_dub_p,
+                                            speed="-",
+                                            eta="-",
+                                            message=f"[Lồng tiếng] {msg}",
+                                        )
 
                                     vieneu_tts.build_full_dubbed_audio(
                                         segments=dubbing_segs,
@@ -1462,7 +1532,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                         chat_url=chat_url,
                                         headers=headers,
                                         model=translate_model or "gemini-lite",
-                                        max_speedup=float(options.get("max_speedup") or options.get("tts_speedup") or 1.2),
+                                        max_speedup=float(options.get("max_speedup") or options.get("tts_speedup") or 1.35),
                                         tolerance=float(options.get("tolerance") or options.get("tts_tolerance") or 0.3),
                                         on_progress=_dub_progress_cb,
                                     )
@@ -1470,6 +1540,8 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                     if dest_dubbed_audio.exists():
                                         dubbed_audio_path = str(dest_dubbed_audio)
                                         update_task(
+                                            phase=phase_3,
+                                            progress=78.0,
                                             dubbed_audio_path=dubbed_audio_path,
                                             message=f"Đã tạo file audio dubbing hoàn chỉnh: {dest_dubbed_audio.name}",
                                         )
@@ -1477,10 +1549,15 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                         # Upload file audio dubbing hoàn chỉnh lên storage.to
                                         if upload_to_storage:
                                             try:
-                                                update_task(message="Đang tải audio dubbing lên storage.to...")
+                                                update_task(phase=phase_3, message="Đang tải audio dubbing lên storage.to...")
 
                                                 def _upload_dub_audio_cb(pct, msg):
-                                                    update_task(message=f"Đang tải audio dubbing lên storage.to ({pct:.0f}%)...")
+                                                    scaled_up_p = round(78.0 + (pct / 100.0) * 2.0, 1)
+                                                    update_task(
+                                                        phase=phase_3,
+                                                        progress=scaled_up_p,
+                                                        message=f"Đang tải audio dubbing lên storage.to ({pct:.0f}%)...",
+                                                    )
 
                                                 dub_audio_storage_res = upload_file_to_storage_to(
                                                     dest_dubbed_audio,
@@ -1490,38 +1567,52 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                                 dubbed_audio_url = dub_audio_storage_res.get("url")
                                                 storage_info["dubbed_audio"] = dub_audio_storage_res
                                                 update_task(
+                                                    phase=phase_3,
+                                                    progress=80.0,
                                                     dubbed_audio_url=dubbed_audio_url,
-                                                    message=f"Đã tải audio dubbing lên storage.to: {dubbed_audio_url}",
+                                                    message="Đã tải audio dubbing lên storage.to",
                                                 )
-                                                print("\n" + "=" * 65, flush=True)
-                                                print("🎙️ [STORAGE.TO - AUDIO DUBBING] Tải lên thành công!", flush=True)
-                                                print(f"🌐 Link Audio Dubbing : \033[1;36m{dubbed_audio_url}\033[0m", flush=True)
-                                                print("=" * 65 + "\n", flush=True)
                                             except Exception as dub_audio_up_err:
-                                                print(f"[Storage.to Error] Lỗi tải audio dubbing: {dub_audio_up_err}", flush=True)
+                                                _safe_log(f"[Storage.to Error] Lỗi tải audio dubbing: {dub_audio_up_err}")
                                                 update_task(upload_dubbed_audio_error=str(dub_audio_up_err))
 
                                         # 7. Render ghép audio dubbing vào video (âm gốc: giảm còn 0.1, mute 0.1s mỗi 0.9s, pitch down 5%; âm dubbing: khuếch đại 3.0, giữ nguyên cao độ tự nhiên - KHÔNG pitch down)
                                         try:
-                                            update_task(message="Đang render ghép video với audio dubbing & hiệu ứng âm thanh nền...")
+                                            update_task(
+                                                phase=phase_4,
+                                                progress=80.0,
+                                                speed="-",
+                                                eta="-",
+                                                message="Đang render video lồng tiếng (âm nền 0.1x, pitch down 5%, mute 0.1s/0.9s)...",
+                                            )
                                             dest_dubbed_video = output_path.with_name(f"{output_path.stem}_dubbed.mp4")
 
                                             def _render_vid_cb(pct, msg):
-                                                update_task(message=f"[Render Dubbed Video] {msg}")
+                                                scaled_render_p = round(80.0 + (pct / 100.0) * 15.0, 1)
+                                                update_task(
+                                                    phase=phase_4,
+                                                    progress=scaled_render_p,
+                                                    speed="-",
+                                                    eta="-",
+                                                    message=f"[Render Dubbed Video] {msg}",
+                                                )
 
                                             vieneu_tts.render_dubbed_video(
                                                 video_path=output_path,
                                                 dubbed_audio_path=dest_dubbed_audio,
                                                 output_video_path=dest_dubbed_video,
-                                                bg_volume=float(options.get("bg_volume") or options.get("dub_bg_volume") or 0.1),
-                                                dub_volume=float(options.get("dub_volume") or options.get("dubbing_volume") or 3.0),
-                                                pitch_down_pct=5.0,
+                                                bg_volume=float(options.get("bg_volume") if options.get("bg_volume") is not None else options.get("dub_bg_volume", 0.1)),
+                                                dub_volume=float(options.get("dub_volume") if options.get("dub_volume") is not None else options.get("dubbing_volume", 3.0)),
+                                                pitch_down_pct=float(options.get("dub_pitch_down_pct") if options.get("dub_pitch_down_pct") is not None else 5.0),
+                                                enable_periodic_mute=bool(options.get("enable_periodic_mute") if options.get("enable_periodic_mute") is not None else True),
                                                 on_progress=_render_vid_cb,
                                             )
 
                                             if dest_dubbed_video.exists():
                                                 dubbed_video_path = str(dest_dubbed_video)
                                                 update_task(
+                                                    phase=phase_4,
+                                                    progress=95.0,
                                                     dubbed_video_path=dubbed_video_path,
                                                     message=f"Đã render video lồng tiếng thành công: {dest_dubbed_video.name}",
                                                 )
@@ -1529,10 +1620,15 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                                 # Upload video lồng tiếng lên storage.to
                                                 if upload_to_storage:
                                                     try:
-                                                        update_task(message="Đang tải video lồng tiếng lên storage.to...")
+                                                        update_task(phase=phase_4, message="Đang tải video lồng tiếng lên storage.to...")
 
                                                         def _upload_dub_vid_cb(pct, msg):
-                                                            update_task(message=f"Đang tải video lồng tiếng lên storage.to ({pct:.0f}%)...")
+                                                            scaled_up_p = round(95.0 + (pct / 100.0) * 4.0, 1)
+                                                            update_task(
+                                                                phase=phase_4,
+                                                                progress=scaled_up_p,
+                                                                message=f"Đang tải video lồng tiếng lên storage.to ({pct:.0f}%)...",
+                                                            )
 
                                                         dub_vid_storage_res = upload_file_to_storage_to(
                                                             dest_dubbed_video,
@@ -1542,30 +1638,28 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                                         dubbed_video_url = dub_vid_storage_res.get("url")
                                                         storage_info["dubbed_video"] = dub_vid_storage_res
                                                         update_task(
+                                                            phase=phase_4,
+                                                            progress=99.0,
                                                             dubbed_video_url=dubbed_video_url,
-                                                            message=f"Đã tải video lồng tiếng lên storage.to: {dubbed_video_url}",
+                                                            message="Đã tải video lồng tiếng lên storage.to",
                                                         )
-                                                        print("\n" + "=" * 65, flush=True)
-                                                        print("🎬 [STORAGE.TO - VIDEO DUBBING] Tải lên thành công!", flush=True)
-                                                        print(f"🌐 Link Video Dubbing : \033[1;32m{dubbed_video_url}\033[0m", flush=True)
-                                                        print("=" * 65 + "\n", flush=True)
                                                     except Exception as dub_vid_up_err:
-                                                        print(f"[Storage.to Error] Lỗi tải video lồng tiếng: {dub_vid_up_err}", flush=True)
+                                                        _safe_log(f"[Storage.to Error] Lỗi tải video lồng tiếng: {dub_vid_up_err}")
                                                         update_task(upload_dubbed_video_error=str(dub_vid_up_err))
                                         except Exception as render_err:
-                                            print(f"[Dubbing Render Error] Lỗi render video lồng tiếng: {render_err}", flush=True)
+                                            _safe_log(f"[Dubbing Render Error] Lỗi render video lồng tiếng: {render_err}")
                                             update_task(render_dubbed_video_error=str(render_err))
 
                                 except Exception as dub_err:
-                                    print(f"[Dubbing Error] Lỗi trong quá trình lồng tiếng VieNeu-TTS: {dub_err}", flush=True)
+                                    _safe_log(f"[Dubbing Error] Lỗi trong quá trình lồng tiếng VieNeu-TTS: {dub_err}")
                                     update_task(dubbing_error=str(dub_err))
 
                     except Exception as trans_err:
-                        print(f"[Translation Error] Lỗi dịch phụ đề tiếng Việt: {trans_err}", flush=True)
+                        _safe_log(f"[Translation Error] Lỗi dịch phụ đề tiếng Việt: {trans_err}")
                         update_task(translation_error=str(trans_err))
 
             except Exception as asr_err:
-                print(f"[CapCut ASR Error] Lỗi nhận diện CapCut ASR: {asr_err}", flush=True)
+                _safe_log(f"[CapCut ASR Error] Lỗi nhận diện CapCut ASR: {asr_err}")
                 update_task(asr_error=str(asr_err))
 
         final_msg = "Ghép video thành công!"
@@ -1599,7 +1693,9 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             LAST_MERGE_RESULT = dict(result_dict)
             options.update(result_dict)
 
+        final_phase = phase_4 if enable_dubbing else (phase_2 if generate_subtitles else phase_1)
         update_task(
+            phase=final_phase,
             status="done",
             progress=100,
             eta="0s",
@@ -1804,7 +1900,7 @@ def start_online_merge_task(video_ids: List[str], options: Dict[str, Any]) -> st
 def merge_videos_sync(
     files: List[str],
     options: Dict[str, Any],
-    progress_callback: Optional[Callable[[float, str, str], None]] = None,
+    progress_callback: Optional[Callable[..., None]] = None,
 ) -> Path:
     """Synchronous video merge function designed for CLI and scripts with real-time progress callbacks."""
     task_id = uuid.uuid4().hex
@@ -1830,6 +1926,7 @@ def merge_videos_sync(
 
     last_pct = -1.0
     last_msg = ""
+    last_phase = ""
     while thread.is_alive():
         with MERGE_LOCK:
             st = dict(MERGE_TASKS.get(task_id, {}))
@@ -1837,10 +1934,15 @@ def merge_videos_sync(
         cur_pct = float(st.get("progress") or 0.0)
         speed = str(st.get("speed") or "-")
         msg = str(st.get("message") or "")
-        if progress_callback and (cur_pct != last_pct or msg != last_msg or cur_pct == 100):
+        phase = str(st.get("phase") or "")
+        if progress_callback and (cur_pct != last_pct or msg != last_msg or phase != last_phase or cur_pct == 100):
             last_pct = cur_pct
             last_msg = msg
-            progress_callback(cur_pct, speed, msg)
+            last_phase = phase
+            try:
+                progress_callback(cur_pct, speed, msg, phase)
+            except TypeError:
+                progress_callback(cur_pct, speed, msg)
         time.sleep(0.15)
 
     thread.join(timeout=2.0)

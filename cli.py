@@ -626,40 +626,43 @@ def cli_merge_folder(
         "video_speed": float(video_speed or 0.9),
     }
 
+    initial_desc = "🎬 [1/4] Ghép video" if dubbing else ("🎬 [1/2] Ghép video" if generate_subtitles else "🎬 Ghép video")
     merge_pbar = tqdm(
         total=100,
-        desc="🎬 Đang xử lý video",
+        desc=initial_desc,
         unit="%",
         bar_format="{l_bar}\033[1;36m{bar}\033[0m| {n_fmt}/100% [{elapsed}<{remaining}] {postfix}",
-        ncols=100,
+        ncols=105,
     )
 
     seen_uploaded_urls = set()
 
-    def _progress_cb(pct: float, speed: str, msg: str):
+    def _progress_cb(pct: float, speed: str, msg: str, phase: str = ""):
         target = min(100, int(round(pct)))
         if target > merge_pbar.n:
             merge_pbar.update(target - merge_pbar.n)
+        if phase:
+            merge_pbar.set_description_str(phase)
         postfix_parts = []
         if speed and speed != "-":
             postfix_parts.append(f"Tốc độ: {speed}")
         if msg:
-            short_msg = msg if len(msg) < 40 else msg[:37] + "..."
+            short_msg = msg if len(msg) < 42 else msg[:39] + "..."
             postfix_parts.append(short_msg)
         merge_pbar.set_postfix_str(" | ".join(postfix_parts))
 
-        # Hiển thị ngay lập tức các link storage.to ngay khi vừa upload xong, tránh mất link nếu session bị ngắt
+        # Hiển thị ngay lập tức các link storage.to ngay khi vừa upload xong, gọn gàng và không làm nát progress bar
         for k, label, color in [
-            ("video_url", "🎬 [Storage.to] Link Video FULL", "\033[1;35m"),
-            ("srt_url", "📝 [Storage.to] Link Subtitle Gốc", "\033[1;35m"),
-            ("translated_srt_url", "🇻🇳 [Storage.to] Link Subtitle Dịch", "\033[1;32m"),
-            ("dubbed_audio_url", "🎙️ [Storage.to] Link Audio Dubbing", "\033[1;36m"),
-            ("dubbed_video_url", "🎬 [Storage.to] Link Video Dubbing", "\033[1;32m"),
+            ("video_url", "🎬 [Storage.to] Video Gốc", "\033[1;35m"),
+            ("srt_url", "📝 [Storage.to] Sub Gốc", "\033[1;35m"),
+            ("translated_srt_url", "🇻🇳 [Storage.to] Sub Dịch", "\033[1;32m"),
+            ("dubbed_audio_url", "🎙️ [Storage.to] Audio Dub", "\033[1;36m"),
+            ("dubbed_video_url", "🎬 [Storage.to] Video Dub", "\033[1;32m"),
         ]:
             val = options.get(k)
             if val and val not in seen_uploaded_urls:
                 seen_uploaded_urls.add(val)
-                tqdm.write(f"\n⚡ {label}: {color}{val}\033[0m\n")
+                tqdm.write(f"⚡ {label:<26}: {color}{val}\033[0m")
 
     try:
         merged_path = video_service.merge_videos_sync(valid_files, options, progress_callback=_progress_cb)
