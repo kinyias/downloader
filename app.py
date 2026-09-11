@@ -566,6 +566,190 @@ def api_detail():
         return jsonify({"error": str(exc)}), 500
 
 
+def normalize_cover_url(url: Any) -> str:
+    """Normalize cover URL to standard web JPEG format on ByteDance public CDN."""
+    url_str = str(url or "").strip()
+    if not url_str:
+        return ""
+    m = re.search(r"novel-pic/([a-f0-9]+)", url_str)
+    if m:
+        img_id = m.group(1)
+        return f"https://p3-novel.byteimg.com/novel-pic/{img_id}~tplv-shrink:640:0.image"
+    return url_str
+
+
+@app.route("/api/proxy_image", methods=["GET"])
+def proxy_image():
+    """Proxy image request to bypass browser CORS, referrer policy, or ISP restrictions."""
+    img_url = request.args.get("url", "").strip()
+    if not img_url:
+        return Response(status=400)
+
+    img_url = normalize_cover_url(img_url)
+    try:
+        resp = requests.get(img_url, headers=HTTP_HEADERS, timeout=15)
+        resp.raise_for_status()
+        content_type = resp.headers.get("Content-Type", "image/jpeg")
+        return Response(resp.content, content_type=content_type, headers={
+            "Cache-Control": "public, max-age=86400",
+            "Access-Control-Allow-Origin": "*",
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ───────────────────────── Phim Mới Hôm Nay (4.py) ─────────────────────────
+
+_latest_module = None
+
+
+def get_latest_module():
+    """Dynamically load 4.py module."""
+    global _latest_module
+    if _latest_module is not None:
+        return _latest_module
+
+    script_path = APP_DIR / "4.py"
+    if not script_path.exists():
+        return None
+
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("latest_service", script_path)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _latest_module = mod
+            return _latest_module
+    except Exception as exc:
+        print(f"[app] Failed to load 4.py: {exc}")
+    return None
+
+
+@app.route("/api/latest", methods=["GET", "POST"])
+def api_latest():
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+    else:
+        payload = request.args
+
+    genre = str(payload.get("genre", "short_play")).strip() or "short_play"
+    only_today_raw = payload.get("only_today")
+    if only_today_raw is None:
+        only_today = True if genre == "short_play" else False
+    else:
+        only_today = str(only_today_raw).lower() in ("1", "true", "yes", "on")
+
+    limit = int(payload.get("limit") or 60)
+    limit = max(1, min(limit, 200))
+    page = max(1, int(payload.get("page") or 1))
+    refresh = str(payload.get("refresh", "")).lower() in ("1", "true", "yes")
+
+    # Filter parameters
+    sort = str(payload.get("sort", "")).strip() or None
+    gender = str(payload.get("gender", "")).strip() or None
+
+    def _parse_list(val):
+        if not val:
+            return None
+        if isinstance(val, list):
+            return [str(x).strip() for x in val if str(x).strip()]
+        return [x.strip() for x in str(val).split(",") if x.strip()]
+
+    online_time = _parse_list(payload.get("online_time"))
+    theme = _parse_list(payload.get("theme") or payload.get("category_dim_theme"))
+    setting = _parse_list(payload.get("setting") or payload.get("role") or payload.get("category_dim_role"))
+    background = _parse_list(payload.get("background") or payload.get("epoch") or payload.get("category_dim_epoch"))
+    keyword = str(payload.get("keyword", "")).strip().lower()
+
+    try:
+        mod = get_latest_module()
+        if not mod or not hasattr(mod, "latest"):
+            return jsonify({"ok": False, "error": "Module 4.py not found or invalid", "items": []}), 500
+
+        fetch_max = max(limit * page + 5, limit * 2)
+        results = mod.latest(
+            genre=genre,
+            only_today=only_today,
+            max_items=fetch_max,
+            refresh=refresh,
+            online_time=online_time,
+            sort=sort,
+            gender=gender,
+            theme=theme,
+            role=setting,
+            epoch=background,
+        )
+
+        is_fallback = False
+        # Fallback if only_today is True but server returned 0 items
+        if not results and only_today and genre == "short_play" and not (theme or setting or background or online_time):
+            results = mod.latest(
+                genre=genre,
+                only_today=False,
+                max_items=fetch_max,
+                refresh=refresh,
+                sort=sort,
+                gender=gender,
+            )
+            is_fallback = True
+
+        # Optional keyword filtering
+        if keyword and results:
+            results = [
+                it for it in results
+                if keyword in it.get("title", "").lower()
+                or keyword in it.get("category", "").lower()
+                or keyword in it.get("category_vn", "").lower()
+                or keyword in it.get("intro", "").lower()
+                or keyword in it.get("series_id", "")
+            ]
+
+        # Pagination slicing
+        start_idx = (page - 1) * limit
+        if start_idx >= len(results):
+            paged_items = []
+        else:
+            paged_items = results[start_idx:start_idx + limit]
+
+        has_more = bool(len(results) > (start_idx + len(paged_items)) and len(paged_items) == limit)
+
+        genre_name = getattr(mod, "GENRE_NAMES", {}).get(genre, genre)
+        return jsonify({
+            "ok": True,
+            "genre": genre,
+            "genre_name": genre_name,
+            "only_today": only_today if not is_fallback else False,
+            "is_fallback": is_fallback,
+            "total": len(results),
+            "page": page,
+            "limit": limit,
+            "count": len(paged_items),
+            "has_more": has_more,
+            "items": paged_items,
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "items": []}), 500
+
+
+@app.route("/api/latest/filters", methods=["GET"])
+def api_latest_filters():
+    genre = str(request.args.get("genre", "short_play")).strip() or "short_play"
+    refresh = request.args.get("refresh", "").lower() in ("1", "true")
+    try:
+        mod = get_latest_module()
+        if not mod or not hasattr(mod, "get_category_filters"):
+            return jsonify({"ok": False, "error": "Module 4.py not found", "filters": []}), 500
+        filter_rows = mod.get_category_filters(genre=genre, refresh=refresh)
+        return jsonify({
+            "ok": True,
+            "genre": genre,
+            "filters": filter_rows,
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "filters": []}), 500
+
+
 # ───────────────────────── 页面和下载 ─────────────────────────
 
 @app.route("/")
