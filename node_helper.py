@@ -1370,13 +1370,14 @@ def denoise_audio(ffmpeg_bin: str, video_path: str, out_mp3: str,
                   video_segments: Optional[List[Dict[str, Any]]] = None) -> str:
     """Extract speech-optimized 16kHz mono audio from video at high speed."""
     os.makedirs(os.path.dirname(os.path.abspath(out_mp3)), exist_ok=True)
-    # Trích xuất trực tiếp MP3 16kHz mono chất lượng chuẩn ASR, bỏ afftdn nặng CPU
+    # Trích xuất trực tiếp MP3 16kHz mono chất lượng chuẩn ASR, sử dụng VBR và aresample chống crash LAME
     cmd = [
         ffmpeg_bin or "ffmpeg", "-y",
         "-i", video_path,
         "-vn",
+        "-af", "aresample=async=1:first_pts=0",
         "-c:a", "libmp3lame",
-        "-b:a", "64k",
+        "-q:a", "5",
         "-ar", "16000",
         "-ac", "1",
         out_mp3

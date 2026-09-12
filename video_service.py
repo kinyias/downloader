@@ -1583,7 +1583,8 @@ def run_stream_copy_concat(
         "-fflags", "+genpts",
         "-f", "concat", "-safe", "0",
         "-i", str(concat_list_file),
-        "-c", "copy",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
         "-avoid_negative_ts", "make_zero",
     ]
 
