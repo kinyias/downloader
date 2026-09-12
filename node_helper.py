@@ -77,7 +77,7 @@ DEFAULT_POLICY = {
     "clusterMaxGapSec": 0.5,
     "clusterMergeSpeedEps": 0.05,
     "residualTempoCap": 1.06,
-    "toleranceSec": 0.3
+    "toleranceSec": 0.5
 }
 
 EZMAX_TRANSLATE_MODELS = [
@@ -952,7 +952,7 @@ def build_dubbing_plan(units: List[Dict[str, Any]], total_duration: float,
         v_speed = max(policy["minVideoSpeed"], min(policy["maxVideoSpeed"], spd))
         u["clusterId"] = cid
         u["videoSpeed"] = v_speed
-        tol_sec = float(policy.get("toleranceSec", 0.3) if policy.get("toleranceSec") is not None else 0.3)
+        tol_sec = float(policy.get("toleranceSec", 0.5) if policy.get("toleranceSec") is not None else 0.5)
         if u["effSpeech"] > (u["plannedWindow"] / v_speed) + tol_sec + 0.001:
             u["status"] = "timing_infeasible"
             infeasible_ids.append(u["unitId"])
@@ -1368,12 +1368,22 @@ def build_video_encoder_args(codec: str, preset: Optional[str] = None,
 
 def denoise_audio(ffmpeg_bin: str, video_path: str, out_mp3: str,
                   video_segments: Optional[List[Dict[str, Any]]] = None) -> str:
-    """Extract audio from video with denoise filters."""
+    """Extract speech-optimized 16kHz mono audio from video at high speed."""
     os.makedirs(os.path.dirname(os.path.abspath(out_mp3)), exist_ok=True)
-    cmd = [ffmpeg_bin or "ffmpeg", "-y", "-i", video_path, "-vn", "-af", "afftdn=nf=-25", "-ar", "16000", "-ac", "1", out_mp3]
+    # Trích xuất trực tiếp MP3 16kHz mono chất lượng chuẩn ASR, bỏ afftdn nặng CPU
+    cmd = [
+        ffmpeg_bin or "ffmpeg", "-y",
+        "-i", video_path,
+        "-vn",
+        "-c:a", "libmp3lame",
+        "-b:a", "64k",
+        "-ar", "16000",
+        "-ac", "1",
+        out_mp3
+    ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode != 0:
-        raise RuntimeError(f"FFmpeg denoise failed: {res.stderr}")
+        raise RuntimeError(f"FFmpeg audio extraction failed: {res.stderr}")
     return out_mp3
 
 def choose_asr_engines(preference: str, source_lang: Optional[str],
@@ -2039,47 +2049,55 @@ def transcribe_capcut_chunked(audio_path: str, ffmpeg_bin: str = "ffmpeg", tdid:
         client = CapCutASR(tdid)
         return client.transcribe(audio_path, {"onStatus": on_status})
 
+    concurrency = min(4, total_chunks)
     if on_status:
-        on_status(f"[CapCut ASR] 🎯 File dài {duration:.1f}s ({duration/60.0:.1f} phút) → Chia thành {total_chunks} đoạn (mỗi đoạn 300s, overlap 5s).")
+        on_status(f"[CapCut ASR] 🎯 File dài {duration:.1f}s ({duration/60.0:.1f} phút) → Chia thành {total_chunks} đoạn, nhận diện song song {concurrency} luồng (mỗi đoạn 300s, overlap 5s).")
+
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     tmp_dir = tempfile.gettempdir()
-    chunk_results = []
-    failed_chunks = []
+    chunk_results_map: Dict[int, List[Dict[str, Any]]] = {}
+    failed_chunks: List[Dict[str, Any]] = []
+    lock = threading.Lock()
+    done_counter = 0
 
-    for w in windows:
+    def _process_chunk(w: Dict[str, Any]) -> Tuple[bool, Optional[Exception]]:
+        nonlocal done_counter
         idx = w["index"]
         c_num = idx + 1
-        pct_start = int((idx / total_chunks) * 100)
         c_start_m = w["start"] / 60.0
         c_end_m = (w["start"] + w["length"]) / 60.0
 
         if on_status:
-            on_status(f"[CapCut ASR] 📦 [Đoạn {c_num}/{total_chunks}] Bắt đầu ({c_start_m:.1f}m - {c_end_m:.1f}m, tiến độ: {pct_start}%)...")
+            on_status(f"[CapCut ASR] 📦 [Đoạn {c_num}/{total_chunks}] Bắt đầu ({c_start_m:.1f}m - {c_end_m:.1f}m)...")
 
         chunk_file = os.path.join(tmp_dir, f"capcut_chunk_{int(time.time()*1000)}_{idx}.mp3")
-        success = False
         last_err = None
 
         for retry in range(1, 3):
             try:
                 slice_audio_chunk(ffmpeg_bin, audio_path, w["start"], w["length"], chunk_file)
                 retry_label = f" (thử lại #{retry})" if retry > 1 else ""
-                if on_status:
+                if on_status and retry > 1:
                     on_status(f"[CapCut ASR] ✂️ [Đoạn {c_num}/{total_chunks}] Đã cắt audio chunk {retry_label} -> Đang gửi nhận dạng...")
-                
+
                 client = CapCutASR(tdid)
                 chunk_prefix = f"[Đoạn {c_num}/{total_chunks}] "
                 segs = client.transcribe(chunk_file, {"onStatus": on_status, "prefix": chunk_prefix})
                 offsetted = offset_segments(segs, w["start"], duration)
-                chunk_results.append(offsetted)
-                success = True
 
-                pct_done = int((c_num / total_chunks) * 100)
+                with lock:
+                    chunk_results_map[idx] = offsetted
+                    done_counter += 1
+                    cur_done = done_counter
+                    pct_done = int((cur_done / total_chunks) * 100)
+
                 if on_status:
-                    on_status(f"[CapCut ASR] ✨ [Đoạn {c_num}/{total_chunks}] Xong! Nhận được {len(segs)} câu. (Tiến độ: {pct_done}%)")
+                    on_status(f"[CapCut ASR] ✨ [Đoạn {c_num}/{total_chunks}] Xong! Nhận được {len(segs)} câu. (Tiến độ: {cur_done}/{total_chunks} đoạn - {pct_done}%)")
                 if on_progress:
-                    on_progress({"done": c_num, "total": total_chunks, "percent": pct_done})
-                break
+                    on_progress({"done": cur_done, "total": total_chunks, "percent": pct_done})
+                return True, None
             except Exception as e:
                 last_err = e
                 if on_status:
@@ -2091,11 +2109,23 @@ def transcribe_capcut_chunked(audio_path: str, ffmpeg_bin: str = "ffmpeg", tdid:
                     except Exception:
                         pass
 
-        if not success:
+        with lock:
             failed_chunks.append({"index": idx, "start": w["start"], "error": str(last_err)})
+        return False, last_err
 
-    if failed_chunks and not chunk_results:
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(_process_chunk, w) for w in windows]
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception:
+                pass
+
+    if failed_chunks and not chunk_results_map:
         raise RuntimeError(f"CapCut ASR thất bại trên toàn bộ các đoạn: {failed_chunks}")
+
+    # Reconstruct strictly sorted chunk_results by window index
+    chunk_results = [chunk_results_map[w["index"]] for w in windows if w["index"] in chunk_results_map]
 
     if on_status:
         on_status(f"[CapCut ASR] 🔄 Đang ghép nối và khử trùng lặp phụ đề từ {len(chunk_results)} đoạn...")

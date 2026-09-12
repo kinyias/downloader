@@ -2058,52 +2058,51 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         dubbed_video_path = None
         storage_info = {}
 
-        # 1. Tải video đã ghép lên storage.to
+        # 1. Tải video đã ghép lên storage.to (Chạy ngầm không chặn luồng nếu bật tạo phụ đề/lồng tiếng)
+        raw_video_upload_thread = None
         if upload_to_storage and output_path.exists():
-            try:
-                active_phase = phase_2 if (enable_dubbing or generate_subtitles) else phase_1
-                update_task(phase=active_phase, message="Đang kết nối và tải video gốc lên storage.to...")
-                from storage_service import upload_file_to_storage_to
+            def _bg_upload_video():
+                nonlocal video_url
+                try:
+                    from storage_service import upload_file_to_storage_to
+                    _safe_log(f"[Storage.to] Bắt đầu tải video gốc lên storage.to ngầm: {output_path.name}...")
 
-                def _upload_video_cb(pct, msg):
-                    if enable_dubbing:
-                        up_p = 40.0 + (pct / 100.0) * 3.0
-                    elif generate_subtitles:
-                        up_p = 60.0 + (pct / 100.0) * 10.0
-                    else:
-                        up_p = 90.0 + (pct / 100.0) * 10.0
-                    update_task(
-                        phase=active_phase,
-                        progress=round(up_p, 1),
-                        message=f"Đang tải video gốc lên storage.to ({pct:.0f}%)...",
-                        upload_progress=pct,
+                    def _upload_video_cb(pct, msg):
+                        update_task(
+                            upload_video_progress=pct,
+                            message=f"Đang tải video gốc lên storage.to ngầm ({pct:.0f}%)...",
+                        )
+
+                    storage_res = upload_file_to_storage_to(
+                        output_path,
+                        api_token=storage_api_token,
+                        on_progress=_upload_video_cb,
                     )
+                    video_url = storage_res.get("url")
+                    storage_info["video"] = storage_res
+                    record_storage_upload(
+                        asset_name="Video Gốc (MP4)",
+                        file_path=output_path,
+                        url=video_url,
+                        storage_res=storage_res,
+                        output_dir=output_dir,
+                        task_id=task_id,
+                    )
+                    update_task(
+                        video_url=video_url,
+                    )
+                    _safe_log(f"[Storage.to] ✅ Video gốc đã tải lên thành công trong background: {video_url}")
+                except Exception as up_err:
+                    _safe_log(f"[Storage.to Error] Lỗi tải video gốc lên storage.to: {up_err}")
+                    update_task(upload_video_error=str(up_err))
 
-                storage_res = upload_file_to_storage_to(
-                    output_path,
-                    api_token=storage_api_token,
-                    on_progress=_upload_video_cb,
-                )
-                video_url = storage_res.get("url")
-                storage_info["video"] = storage_res
-                record_storage_upload(
-                    asset_name="Video Gốc (MP4)",
-                    file_path=output_path,
-                    url=video_url,
-                    storage_res=storage_res,
-                    output_dir=output_dir,
-                    task_id=task_id,
-                )
-                done_v_p = 43.0 if enable_dubbing else (70.0 if generate_subtitles else 100.0)
-                update_task(
-                    phase=active_phase,
-                    progress=done_v_p,
-                    video_url=video_url,
-                    message="Đã tải video gốc lên storage.to",
-                )
-            except Exception as up_err:
-                _safe_log(f"[Storage.to Error] Lỗi tải video lên storage.to: {up_err}")
-                update_task(upload_video_error=str(up_err))
+            if generate_subtitles:
+                # Chạy ngầm hoàn toàn, luồng chính chuyển ngay sang CapCut ASR
+                raw_video_upload_thread = threading.Thread(target=_bg_upload_video, daemon=True)
+                raw_video_upload_thread.start()
+            else:
+                # Nếu không có bước phụ đề/lồng tiếng thì upload đồng bộ
+                _bg_upload_video()
 
         # 2. Nhận diện giọng nói với CapCut ASR & xuất file phụ đề .srt
         if generate_subtitles and output_path.exists():
@@ -2309,7 +2308,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                                         headers=headers,
                                         model=resolved_model,
                                         max_speedup=float(options.get("max_speedup") or options.get("tts_speedup") or 1.35),
-                                        tolerance=float(options.get("tolerance") or options.get("tts_tolerance") or 0.3),
+                                        tolerance=float(options.get("tolerance") or options.get("tts_tolerance") or 0.5),
                                         on_progress=_dub_progress_cb,
                                     )
 
@@ -2470,7 +2469,9 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
 
             except Exception as asr_err:
                 _safe_log(f"[CapCut ASR Error] Lỗi nhận diện CapCut ASR: {asr_err}")
-                update_task(asr_error=str(asr_err))
+        # Chờ đồng bộ nhanh thread upload video gốc nếu nó đã sắp hoàn thành
+        if raw_video_upload_thread and raw_video_upload_thread.is_alive():
+            raw_video_upload_thread.join(timeout=5.0)
 
         final_msg = "Ghép video thành công!"
         if video_url and dubbed_video_url:

@@ -766,38 +766,43 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
             budget_lookup[s_id] = s.get("budgetSyl", 0)
             budgeted_segments_map[s_id] = s
 
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    concurrency = min(4, max(1, total_batches))
+    _log(f"⚡ Đang dịch song song {total_batches} batch với {concurrency} luồng đồng thời...")
+
     cur_start_seg = 1
+    batch_metadata = []
     for chunk_idx, chunk in enumerate(chunks):
-        batch_num = chunk_idx + 1
-        batch_start_seg = cur_start_seg
-        batch_end_seg = min(cur_start_seg + len(chunk) - 1, total_segs)
+        b_num = chunk_idx + 1
+        b_start = cur_start_seg
+        b_end = min(cur_start_seg + len(chunk) - 1, total_segs)
         cur_start_seg += len(chunk)
-        pct = int(5 + (chunk_idx / total_batches) * 90)
+        batch_metadata.append({
+            "chunk_idx": chunk_idx,
+            "chunk": chunk,
+            "batch_num": b_num,
+            "batch_start_seg": b_start,
+            "batch_end_seg": b_end,
+        })
 
-        _log(
-            f"--> [Translate Batch {batch_num}/{total_batches}] Đang dịch {len(chunk)} câu "
-            f"(Segment #{batch_start_seg} ➔ #{batch_end_seg} / {total_segs}) qua LLM [{model}]..."
-        )
+    lock = threading.Lock()
+    completed_batches = 0
+    completed_segs_count = 0
 
-        if job_id:
-            update_job(
-                job_id,
-                pct,
-                f"Đang dịch batch {batch_num}/{total_batches} (phân đoạn #{batch_start_seg} ➔ #{batch_end_seg}/{total_segs} câu)...",
-                batch_info={
-                    "totalBatches": total_batches,
-                    "currentBatch": batch_num,
-                    "totalSegments": total_segs,
-                    "completedSegments": max(0, batch_start_seg - 1),
-                    "batchStartSeg": batch_start_seg,
-                    "batchEndSeg": batch_end_seg
-                }
-            )
+    def _worker(meta: Dict[str, Any]) -> Dict[str, str]:
+        nonlocal completed_batches, completed_segs_count
+        chunk_idx = meta["chunk_idx"]
+        chunk = meta["chunk"]
+        batch_num = meta["batch_num"]
+        batch_start_seg = meta["batch_start_seg"]
+        batch_end_seg = meta["batch_end_seg"]
 
         batch_t0 = time.perf_counter()
+        _log(f"--> [Translate Batch {batch_num}/{total_batches}] Đang dịch {len(chunk)} câu (#{batch_start_seg} ➔ #{batch_end_seg}) qua LLM [{model}]...")
 
         chunk_input = [{"id": s.get("id", str(idx + 1)), "text": s.get("text", "")} for idx, s in enumerate(chunk)]
-
         payload = {
             "model": model or "gemini-lite",
             "messages": [
@@ -808,235 +813,224 @@ def run_translate_segments(segments: List[Dict[str, Any]], target_lang: str = "v
             "stream": False
         }
 
-        try:
-            resp = requests.post(chat_url, headers=headers, json=payload, timeout=600)
-            if resp.status_code != 200:
-                err_detail = resp.text
-                try:
-                    err_json = resp.json()
-                    err_detail = err_json.get("error", {}).get("message") or err_json.get("message") or resp.text
-                except Exception:
-                    pass
-                raise RuntimeError(f"Lỗi API ({resp.status_code}): {err_detail}")
-
-            raw_text = (resp.text or "").strip()
-            if not raw_text:
-                raise RuntimeError("Server LLM trả về phản hồi rỗng (0 bytes). Vui lòng kiểm tra lại cấu hình endpoint và model.")
-
-            # Check if response is SSE (Server-Sent Events) or raw streaming text
-            content = ""
-            is_sse = resp.headers.get("content-type", "").startswith("text/event-stream") or raw_text.startswith("data:")
-
-            if is_sse:
-                content_parts = []
-                for line in raw_text.splitlines():
-                    line = line.strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        continue
-                    try:
-                        chunk_obj = json.loads(data_str)
-                        if "error" in chunk_obj:
-                            err_msg = chunk_obj["error"].get("message") if isinstance(chunk_obj["error"], dict) else str(chunk_obj["error"])
-                            raise RuntimeError(f"Lỗi từ LLM: {err_msg}")
-                        delta = chunk_obj.get("choices", [{}])[0].get("delta", {})
-                        c = delta.get("content", "")
-                        if c:
-                            content_parts.append(c)
-                    except Exception as e:
-                        if "Lỗi từ LLM:" in str(e):
-                            raise
-                content = "".join(content_parts).strip()
-            else:
-                try:
-                    resp_data = resp.json()
-                except Exception as json_err:
-                    raise RuntimeError(f"Phản hồi từ LLM không đúng định dạng JSON: {raw_text[:200]}") from json_err
-
-                choices = resp_data.get("choices") or []
-                if not choices:
-                    if "error" in resp_data:
-                        err_msg = resp_data["error"].get("message") if isinstance(resp_data["error"], dict) else str(resp_data["error"])
-                        raise RuntimeError(f"Lỗi từ LLM: {err_msg}")
-                    raise RuntimeError(f"LLM không trả về kết quả choices: {raw_text[:200]}")
-
-                content = choices[0].get("message", {}).get("content", "").strip()
-
-            if not content:
-                raise RuntimeError("Nội dung dịch từ LLM bị rỗng.")
-
-            # Strip markdown fence if present
-            if "```json" in content:
-                content = content.split("```json", 1)[1].split("```", 1)[0].strip()
-            elif "```" in content:
-                content = content.split("```", 1)[1].split("```", 1)[0].strip()
-
-            # Parse JSON
-            parsed_items = None
+        local_results: Dict[str, str] = {}
+        resp = requests.post(chat_url, headers=headers, json=payload, timeout=600)
+        if resp.status_code != 200:
+            err_detail = resp.text
             try:
-                parsed_items = json.loads(content)
+                err_json = resp.json()
+                err_detail = err_json.get("error", {}).get("message") or err_json.get("message") or resp.text
             except Exception:
-                # Fallback regex extraction of {"id": ..., "translation": ...}
-                matches = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"(?:translation|text|target|vi)"\s*:\s*"([^"]*)"\s*\}', content)
-                if matches:
-                    parsed_items = [{"id": m[0], "translation": m[1]} for m in matches]
+                pass
+            raise RuntimeError(f"Lỗi API ({resp.status_code}): {err_detail}")
 
-            if isinstance(parsed_items, list):
-                for item in parsed_items:
-                    if isinstance(item, dict) and "id" in item:
-                        trans_val = item.get("translation") or item.get("text") or item.get("target") or item.get("vi") or ""
-                        results_map[str(item["id"])] = trans_val
-            else:
-                # Fallback: line-by-line pairing if LLM answered in raw text
-                lines = [line.strip() for line in content.splitlines() if line.strip()]
-                for idx, s in enumerate(chunk):
-                    s_id = str(s.get("id", idx + 1))
-                    if idx < len(lines):
-                        results_map[s_id] = lines[idx]
+        raw_text = (resp.text or "").strip()
+        if not raw_text:
+            raise RuntimeError("Server LLM trả về phản hồi rỗng (0 bytes). Vui lòng kiểm tra lại cấu hình endpoint và model.")
 
-            # Retranslate loop for missed/flawed segments in this batch (matching node_helper.js _needsRetry)
-            max_retry_rounds = 3
-            for retry_round in range(1, max_retry_rounds + 1):
-                missed_segs = []
-                for s in chunk:
-                    s_id = str(s.get("id", ""))
-                    cur_trans = results_map.get(s_id, "")
-                    if needs_retry(s.get("text", ""), cur_trans, source_lang=source_lang, target_lang=target_lang):
-                        missed_segs.append(s)
-
-                if not missed_segs:
-                    break
-
-                _log(f"  [Retranslate Batch {batch_num}] Phát hiện {len(missed_segs)}/{len(chunk)} câu cần dịch lại (vòng {retry_round}/{max_retry_rounds})...")
-                if job_id:
-                    update_job(
-                        job_id,
-                        pct,
-                        f"Đang dịch lại {len(missed_segs)} câu cần bổ sung/sửa ở batch {batch_num} (vòng {retry_round}/{max_retry_rounds})...",
-                        batch_info={
-                            "totalBatches": total_batches,
-                            "currentBatch": batch_num,
-                            "totalSegments": total_segs,
-                            "completedSegments": max(0, batch_start_seg - 1),
-                            "batchStartSeg": batch_start_seg,
-                            "batchEndSeg": batch_end_seg
-                        }
-                    )
-
-                missed_ids = {str(s.get("id", "")) for s in missed_segs}
-                context_segs = build_retry_context(chunk, results_map, missed_ids, max_context=6)
-
-                retry_input = []
-                for s in missed_segs:
-                    retry_input.append({"id": str(s.get("id", "")), "text": s.get("text", "")})
-                for c in context_segs:
-                    retry_input.append({
-                        "id": str(c.get("id", "")),
-                        "text": c.get("text", ""),
-                        "context": c.get("translation", ""),
-                        "isContextOnly": True
-                    })
-
-                retry_prompt_addon = (
-                    "\nLƯU Ý: Các câu có 'isContextOnly': true là ngữ cảnh lân cận để bạn hiểu mạch truyện, "
-                    "tuyệt đối KHÔNG dịch lại những câu này. CHỈ dịch và trả về các câu còn lại dưới dạng mảng JSON "
-                    "[{\"id\": ..., \"translation\": ...}]."
-                )
-
-                retry_payload = {
-                    "model": model or "gemini-lite",
-                    "messages": [
-                        {"role": "system", "content": prompt_text + retry_prompt_addon},
-                        {"role": "user", "content": json.dumps(retry_input, ensure_ascii=False)}
-                    ],
-                    "temperature": 0.3,
-                    "stream": False
-                }
-
+        content = ""
+        is_sse = resp.headers.get("content-type", "").startswith("text/event-stream") or raw_text.startswith("data:")
+        if is_sse:
+            content_parts = []
+            for line in raw_text.splitlines():
+                line = line.strip()
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    continue
                 try:
-                    retry_resp = requests.post(chat_url, headers=headers, json=retry_payload, timeout=180)
-                    if retry_resp.status_code == 200:
-                        retry_text = (retry_resp.text or "").strip()
-                        retry_content = ""
-                        if retry_resp.headers.get("content-type", "").startswith("text/event-stream") or retry_text.startswith("data:"):
-                            parts = []
-                            for line in retry_text.splitlines():
-                                line = line.strip()
-                                if line.startswith("data:") and line[5:].strip() != "[DONE]":
-                                    try:
-                                        delta = json.loads(line[5:].strip()).get("choices", [{}])[0].get("delta", {})
-                                        if delta.get("content"):
-                                            parts.append(delta["content"])
-                                    except Exception:
-                                        pass
-                            retry_content = "".join(parts).strip()
-                        else:
-                            try:
-                                retry_data = retry_resp.json()
-                                chs = retry_data.get("choices") or []
-                                if chs:
-                                    retry_content = chs[0].get("message", {}).get("content", "").strip()
-                            except Exception:
-                                pass
+                    chunk_obj = json.loads(data_str)
+                    if "error" in chunk_obj:
+                        err_msg = chunk_obj["error"].get("message") if isinstance(chunk_obj["error"], dict) else str(chunk_obj["error"])
+                        raise RuntimeError(f"Lỗi từ LLM: {err_msg}")
+                    delta = chunk_obj.get("choices", [{}])[0].get("delta", {})
+                    c = delta.get("content", "")
+                    if c:
+                        content_parts.append(c)
+                except Exception as e:
+                    if "Lỗi từ LLM:" in str(e):
+                        raise
+            content = "".join(content_parts).strip()
+        else:
+            try:
+                resp_data = resp.json()
+            except Exception as json_err:
+                raise RuntimeError(f"Phản hồi từ LLM không đúng định dạng JSON: {raw_text[:200]}") from json_err
 
-                        if retry_content:
-                            if "```json" in retry_content:
-                                retry_content = retry_content.split("```json", 1)[1].split("```", 1)[0].strip()
-                            elif "```" in retry_content:
-                                retry_content = retry_content.split("```", 1)[1].split("```", 1)[0].strip()
+            choices = resp_data.get("choices") or []
+            if not choices:
+                if "error" in resp_data:
+                    err_msg = resp_data["error"].get("message") if isinstance(resp_data["error"], dict) else str(resp_data["error"])
+                    raise RuntimeError(f"Lỗi từ LLM: {err_msg}")
+                raise RuntimeError(f"LLM không trả về kết quả choices: {raw_text[:200]}")
+            content = choices[0].get("message", {}).get("content", "").strip()
 
-                            retry_parsed = None
-                            try:
-                                retry_parsed = json.loads(retry_content)
-                            except Exception:
-                                m_matches = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"(?:translation|text|target|vi)"\s*:\s*"([^"]*)"\s*\}', retry_content)
-                                if m_matches:
-                                    retry_parsed = [{"id": m[0], "translation": m[1]} for m in m_matches]
+        if not content:
+            raise RuntimeError("Nội dung dịch từ LLM bị rỗng.")
 
-                            fixed_count = 0
-                            if isinstance(retry_parsed, list):
-                                for it in retry_parsed:
-                                    if isinstance(it, dict) and "id" in it:
-                                        it_id = str(it["id"])
-                                        it_trans = (it.get("translation") or it.get("text") or it.get("target") or it.get("vi") or "").strip()
-                                        orig_seg = next((s for s in missed_segs if str(s.get("id")) == it_id), None)
-                                        if orig_seg and it_trans and not needs_retry(orig_seg.get("text", ""), it_trans, source_lang, target_lang):
-                                            results_map[it_id] = it_trans
-                                            fixed_count += 1
-                            _log(f"  [Retranslate Batch {batch_num}] Đã khắc phục thành công {fixed_count}/{len(missed_segs)} câu ở vòng {retry_round}.")
-                except Exception as retry_err:
-                    _log(f"  [Retranslate Warning] Lỗi ở vòng {retry_round}: {retry_err}")
-                    break
+        if "```json" in content:
+            content = content.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in content:
+            content = content.split("```", 1)[1].split("```", 1)[0].strip()
 
-            batch_dur = time.perf_counter() - batch_t0
-            completed_so_far = batch_end_seg
-            pct_so_far = (completed_so_far / total_segs) * 100
-            _log(
-                f"<-- [Translate Batch {batch_num}/{total_batches} HOÀN THÀNH] Xong {len(chunk)} câu trong {batch_dur:.2f}s "
-                f"| Đã dịch: {completed_so_far}/{total_segs} segments ({pct_so_far:.1f}%)"
+        parsed_items = None
+        try:
+            parsed_items = json.loads(content)
+        except Exception:
+            matches = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"(?:translation|text|target|vi)"\s*:\s*"([^"]*)"\s*\}', content)
+            if matches:
+                parsed_items = [{"id": m[0], "translation": m[1]} for m in matches]
+
+        if isinstance(parsed_items, list):
+            for item in parsed_items:
+                if isinstance(item, dict) and "id" in item:
+                    trans_val = item.get("translation") or item.get("text") or item.get("target") or item.get("vi") or ""
+                    local_results[str(item["id"])] = trans_val
+        else:
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            for idx, s in enumerate(chunk):
+                s_id = str(s.get("id", idx + 1))
+                if idx < len(lines):
+                    local_results[s_id] = lines[idx]
+
+        # Retranslate loop for missed/flawed segments in this batch
+        max_retry_rounds = 3
+        for retry_round in range(1, max_retry_rounds + 1):
+            missed_segs = []
+            for s in chunk:
+                s_id = str(s.get("id", ""))
+                cur_trans = local_results.get(s_id, "")
+                if needs_retry(s.get("text", ""), cur_trans, source_lang=source_lang, target_lang=target_lang):
+                    missed_segs.append(s)
+
+            if not missed_segs:
+                break
+
+            missed_ids = {str(s.get("id", "")) for s in missed_segs}
+            context_segs = build_retry_context(chunk, local_results, missed_ids, max_context=6)
+
+            retry_input = []
+            for s in missed_segs:
+                retry_input.append({"id": str(s.get("id", "")), "text": s.get("text", "")})
+            for c in context_segs:
+                retry_input.append({
+                    "id": str(c.get("id", "")),
+                    "text": c.get("text", ""),
+                    "context": c.get("translation", ""),
+                    "isContextOnly": True
+                })
+
+            retry_prompt_addon = (
+                "\nLƯU Ý: Các câu có 'isContextOnly': true là ngữ cảnh lân cận để bạn hiểu mạch truyện, "
+                "tuyệt đối KHÔNG dịch lại những câu này. CHỈ dịch và trả về các câu còn lại dưới dạng mảng JSON "
+                "[{\"id\": ..., \"translation\": ...}]."
             )
-            if job_id:
-                update_job(
-                    job_id,
-                    int(pct_so_far * 0.95),
-                    f"Đã xong batch {batch_num}/{total_batches} ({completed_so_far}/{total_segs} câu, {pct_so_far:.0f}%)...",
-                    batch_info={
-                        "totalBatches": total_batches,
-                        "currentBatch": batch_num,
-                        "totalSegments": total_segs,
-                        "completedSegments": completed_so_far,
-                        "batchStartSeg": batch_start_seg,
-                        "batchEndSeg": batch_end_seg
-                    }
-                )
 
-        except Exception as e:
-            _log(f"[Translate Error] Batch {chunk_idx + 1}/{total_batches} thất bại: {e}")
-            if job_id:
-                update_job(job_id, 0, f"Lỗi dịch phân đoạn: {str(e)}", status="failed", error=str(e))
-            raise RuntimeError(f"Lỗi khi dịch qua LLM ({chat_url}): {str(e)}")
+            retry_payload = {
+                "model": model or "gemini-lite",
+                "messages": [
+                    {"role": "system", "content": prompt_text + retry_prompt_addon},
+                    {"role": "user", "content": json.dumps(retry_input, ensure_ascii=False)}
+                ],
+                "temperature": 0.3,
+                "stream": False
+            }
+
+            try:
+                retry_resp = requests.post(chat_url, headers=headers, json=retry_payload, timeout=180)
+                if retry_resp.status_code == 200:
+                    retry_text = (retry_resp.text or "").strip()
+                    retry_content = ""
+                    if retry_resp.headers.get("content-type", "").startswith("text/event-stream") or retry_text.startswith("data:"):
+                        parts = []
+                        for line in retry_text.splitlines():
+                            line = line.strip()
+                            if line.startswith("data:") and line[5:].strip() != "[DONE]":
+                                try:
+                                    delta = json.loads(line[5:].strip()).get("choices", [{}])[0].get("delta", {})
+                                    if delta.get("content"):
+                                        parts.append(delta["content"])
+                                except Exception:
+                                    pass
+                        retry_content = "".join(parts).strip()
+                    else:
+                        try:
+                            retry_data = retry_resp.json()
+                            chs = retry_data.get("choices") or []
+                            if chs:
+                                retry_content = chs[0].get("message", {}).get("content", "").strip()
+                        except Exception:
+                            pass
+
+                    if retry_content:
+                        if "```json" in retry_content:
+                            retry_content = retry_content.split("```json", 1)[1].split("```", 1)[0].strip()
+                        elif "```" in retry_content:
+                            retry_content = retry_content.split("```", 1)[1].split("```", 1)[0].strip()
+
+                        retry_parsed = None
+                        try:
+                            retry_parsed = json.loads(retry_content)
+                        except Exception:
+                            m_matches = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"(?:translation|text|target|vi)"\s*:\s*"([^"]*)"\s*\}', retry_content)
+                            if m_matches:
+                                retry_parsed = [{"id": m[0], "translation": m[1]} for m in m_matches]
+
+                        if isinstance(retry_parsed, list):
+                            for it in retry_parsed:
+                                if isinstance(it, dict) and "id" in it:
+                                    it_id = str(it["id"])
+                                    it_trans = (it.get("translation") or it.get("text") or it.get("target") or it.get("vi") or "").strip()
+                                    orig_seg = next((s for s in missed_segs if str(s.get("id")) == it_id), None)
+                                    if orig_seg and it_trans and not needs_retry(orig_seg.get("text", ""), it_trans, source_lang, target_lang):
+                                        local_results[it_id] = it_trans
+            except Exception as retry_err:
+                _log(f"  [Retranslate Warning] Lỗi ở vòng {retry_round}: {retry_err}")
+                break
+
+        batch_dur = time.perf_counter() - batch_t0
+        with lock:
+            results_map.update(local_results)
+            completed_batches += 1
+            completed_segs_count += len(chunk)
+            cur_batches = completed_batches
+            cur_segs = completed_segs_count
+            pct_so_far = (cur_batches / total_batches) * 100
+
+        _log(
+            f"<-- [Translate Batch {batch_num}/{total_batches} HOÀN THÀNH] Xong {len(chunk)} câu trong {batch_dur:.2f}s "
+            f"| Tổng tiến độ: {cur_batches}/{total_batches} batches ({cur_segs}/{total_segs} segments, {pct_so_far:.0f}%)"
+        )
+        if job_id:
+            update_job(
+                job_id,
+                int(5 + pct_so_far * 0.9),
+                f"Đã dịch {cur_batches}/{total_batches} batches ({cur_segs}/{total_segs} câu)...",
+                batch_info={
+                    "totalBatches": total_batches,
+                    "currentBatch": cur_batches,
+                    "totalSegments": total_segs,
+                    "completedSegments": cur_segs,
+                    "batchStartSeg": batch_start_seg,
+                    "batchEndSeg": batch_end_seg
+                }
+            )
+
+        return local_results
+
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        future_map = {executor.submit(_worker, meta): meta for meta in batch_metadata}
+        for fut in as_completed(future_map):
+            meta = future_map[fut]
+            try:
+                fut.result()
+            except Exception as exc:
+                b_num = meta["batch_num"]
+                _log(f"[Translate Error] Batch {b_num}/{total_batches} thất bại: {exc}")
+                if job_id:
+                    update_job(job_id, 0, f"Lỗi dịch batch {b_num}: {str(exc)}", status="failed", error=str(exc))
+                raise RuntimeError(f"Lỗi khi dịch qua LLM ({chat_url}) tại batch {b_num}: {str(exc)}")
 
     # Step 4: Condensation Passes (Vietnamese spokenText) matching node_helper.py
     spoken_map: Dict[str, str] = {}

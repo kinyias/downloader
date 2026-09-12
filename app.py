@@ -969,7 +969,7 @@ def _parse_merge_options(payload: dict, default_full_flow: bool = False) -> dict
         "tts_voice": str(payload.get("tts_voice") or payload.get("voice") or "Ngọc Huyền").strip(),
         "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
         "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.35),
-        "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.3),
+        "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.5),
         "video_speed": float(payload.get("video_speed") or payload.get("speed") or 1.0),
         "stream_copy": str(payload.get("stream_copy") or "auto").strip(),
         "bg_volume": float(payload.get("bg_volume") if payload.get("bg_volume") is not None else payload.get("dub_bg_volume", 0.1)),
