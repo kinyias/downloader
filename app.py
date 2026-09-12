@@ -946,7 +946,7 @@ def _parse_merge_options(payload: dict, default_full_flow: bool = False) -> dict
         "fps": str(payload.get("fps", "original")).strip(),
         "bitrate": str(payload.get("bitrate", "auto")).strip(),
         "custom_bitrate": str(payload.get("custom_bitrate", "")).strip(),
-        "codec": str(payload.get("codec", "h264")).strip(),
+        "codec": str(payload.get("codec") or "auto").strip(),
         "gpu": str(payload.get("gpu", "nvenc")).strip(),
         "color_filter": str(payload.get("color_filter", "none")).strip(),
         "custom_color_filter": str(payload.get("custom_color_filter", "")).strip(),

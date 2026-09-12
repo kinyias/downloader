@@ -925,7 +925,16 @@ def determine_target_resolution(
             try:
                 w, h = [x.strip() for x in res_val.split("x", 1)]
                 w_int, h_int = int(w), int(h)
-                return w_int + (w_int % 2), h_int + (h_int % 2)
+                res_cand = (w_int + (w_int % 2), h_int + (h_int % 2))
+                # Tự động đồng bộ hướng (orientation) với video gốc:
+                # Nếu đa số video gốc là video dọc (h > w) nhưng user chọn kích thước ngang (hoặc ngược lại)
+                portrait_count = sum(1 for info in probed_infos if int(info.get("height") or 0) > int(info.get("width") or 0))
+                is_mostly_portrait = portrait_count > (len(probed_infos) // 2)
+                if is_mostly_portrait and res_cand[0] > res_cand[1]:
+                    return (res_cand[1], res_cand[0])
+                elif not is_mostly_portrait and res_cand[1] > res_cand[0]:
+                    return (res_cand[1], res_cand[0])
+                return res_cand
             except Exception:
                 pass
 
@@ -955,7 +964,8 @@ def determine_target_fps(probed_infos: List[Dict[str, Any]], user_fps: str = "or
     valid_fps = [float(info["fps"]) for info in probed_infos if info.get("fps") and float(info["fps"]) > 0]
     if not valid_fps:
         return None
-    if max(valid_fps) - min(valid_fps) > 0.5:
+    # Nếu user_fps là "original", cho phép dung sai VFR (lên tới 3.0 fps) giữa các tập mà không ép target_fps
+    if max(valid_fps) - min(valid_fps) > 3.0:
         from collections import Counter
         most_common = Counter([round(f, 1) for f in valid_fps]).most_common(1)[0][0]
         return most_common
@@ -1322,6 +1332,34 @@ def run_single_pass_encode(
                 pass
 
 
+def canonical_video_codec(c: str) -> str:
+    """Normalize video codec string to its base family name."""
+    c = str(c or "").lower().strip()
+    if c in ["libx264", "h264_nvenc", "h264_qsv", "h264_amf", "avc1", "h264"]:
+        return "h264"
+    if c in ["libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf", "h265", "hev1", "hvc1", "hevc"]:
+        return "hevc"
+    if c in ["vp9", "vp09", "libvpx-vp9"]:
+        return "vp9"
+    if c in ["av1", "av01", "libsvtav1"]:
+        return "av1"
+    return c
+
+
+def canonical_audio_codec(a: str) -> str:
+    """Normalize audio codec string to its base format name."""
+    a = str(a or "").lower().strip()
+    if a in ["aac", "mp4a", "mp4a-40-2"]:
+        return "aac"
+    if a in ["mp3", "libmp3lame"]:
+        return "mp3"
+    if a in ["ac3", "eac3"]:
+        return "ac3"
+    if a in ["opus", "libopus"]:
+        return "opus"
+    return a
+
+
 def check_stream_copy_eligibility(
     probed_infos: List[Dict[str, Any]],
     cut_end_seconds: float = 0.0,
@@ -1354,25 +1392,28 @@ def check_stream_copy_eligibility(
         return False, "Không có thông tin video đầu vào."
 
     first = probed_infos[0]
-    ref_codec = str(first.get("codec") or "").lower()
+    ref_codec = canonical_video_codec(first.get("video_codec") or first.get("codec") or "")
     ref_w = int(first.get("width") or 0)
     ref_h = int(first.get("height") or 0)
     ref_audio = bool(first.get("has_audio", False))
-    ref_acodec = str(first.get("audio_codec") or "").lower()
+    ref_acodec = canonical_audio_codec(first.get("audio_codec") or "")
 
-    if target_w and target_h and (ref_w != target_w or ref_h != target_h):
-        return False, f"Yêu cầu đổi độ phân giải ({ref_w}x{ref_h} -> {target_w}x{target_h})."
+    if target_w and target_h:
+        w_match = (ref_w == target_w and ref_h == target_h) or (ref_w == target_h and ref_h == target_w) or (abs(ref_w - target_w) <= 2 and abs(ref_h - target_h) <= 2)
+        if not w_match:
+            return False, f"Yêu cầu đổi độ phân giải ({ref_w}x{ref_h} -> {target_w}x{target_h})."
 
     for idx, info in enumerate(probed_infos[1:], start=2):
-        v_codec = str(info.get("codec") or "").lower()
+        v_codec = canonical_video_codec(info.get("video_codec") or info.get("codec") or "")
         w = int(info.get("width") or 0)
         h = int(info.get("height") or 0)
         has_audio = bool(info.get("has_audio", False))
-        acodec = str(info.get("audio_codec") or "").lower()
+        acodec = canonical_audio_codec(info.get("audio_codec") or "")
 
         if v_codec != ref_codec:
             return False, f"Tập {idx} có codec video ({v_codec}) khác tập 1 ({ref_codec})."
-        if w != ref_w or h != ref_h:
+        w_match = (w == ref_w and h == ref_h) or (w == ref_h and h == ref_w) or (abs(w - ref_w) <= 2 and abs(h - ref_h) <= 2)
+        if not w_match:
             return False, f"Tập {idx} có độ phân giải ({w}x{h}) khác tập 1 ({ref_w}x{ref_h})."
         if has_audio != ref_audio:
             return False, f"Tập {idx} có trạng thái âm thanh không đồng nhất với tập 1."
@@ -1393,36 +1434,42 @@ def find_outlier_videos(
     Identify outlier video clips that differ from the target reference profile.
     Returns: list of (index, info, diff_reason).
     """
+    from collections import Counter
     outliers = []
-    tgt_c = str(target_codec or "h264").lower()
-    if tgt_c in ["libx264", "h264_nvenc", "h264_qsv", "h264_amf"]:
-        tgt_c = "h264"
-    elif tgt_c in ["libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf"]:
-        tgt_c = "hevc"
+    tgt_c = canonical_video_codec(target_codec or "h264")
+
+    # Xác định codec âm thanh phổ biến nhất (dominant audio codec)
+    audio_codecs = [canonical_audio_codec(info.get("audio_codec") or "") for info in probed_infos if info.get("has_audio")]
+    audio_codecs = [ac for ac in audio_codecs if ac]
+    dominant_acodec = Counter(audio_codecs).most_common(1)[0][0] if audio_codecs else "aac"
 
     for idx, info in enumerate(probed_infos):
         reasons = []
         w = int(info.get("width") or 0)
         h = int(info.get("height") or 0)
-        c = str(info.get("video_codec") or info.get("codec") or "").lower()
-        if c in ["libx264", "h264_nvenc"]:
-            c = "h264"
-        elif c in ["libx265", "hevc_nvenc"]:
-            c = "hevc"
+        c = canonical_video_codec(info.get("video_codec") or info.get("codec") or "")
         fps = float(info.get("fps") or 0.0)
         has_audio = bool(info.get("has_audio", False))
-        acodec = str(info.get("audio_codec") or "").lower()
+        acodec = canonical_audio_codec(info.get("audio_codec") or "")
 
-        if w != target_w or h != target_h:
+        # 1. Kiểm tra độ phân giải (hỗ trợ hoán vị portrait/landscape và dung sai 2px padding)
+        w_match = (w == target_w and h == target_h) or (w == target_h and h == target_w) or (abs(w - target_w) <= 2 and abs(h - target_h) <= 2)
+        if not w_match:
             reasons.append(f"độ phân giải {w}x{h} != {target_w}x{target_h}")
+
+        # 2. Kiểm tra codec video
         if c and tgt_c and c != tgt_c:
             reasons.append(f"codec video {c} != {tgt_c}")
-        if target_fps and fps > 0 and abs(fps - target_fps) > 0.5:
+
+        # 3. Kiểm tra FPS (dung sai 3.0 fps thích ứng hoàn hảo với VFR biến thiên)
+        if target_fps and fps > 0 and abs(fps - target_fps) > 3.0:
             reasons.append(f"fps {fps:.1f} != {target_fps:.1f}")
-        if not has_audio:
+
+        # 4. Kiểm tra Audio (hỗ trợ aac, mp3, ac3, opus đồng nhất)
+        if not has_audio and audio_codecs:
             reasons.append("thiếu audio track")
-        elif acodec and acodec not in ("aac", "mp4a"):
-            reasons.append(f"codec audio {acodec} != aac")
+        elif acodec and dominant_acodec and acodec != dominant_acodec:
+            reasons.append(f"codec audio {acodec} != {dominant_acodec}")
 
         if reasons:
             outliers.append((idx, info, ", ".join(reasons)))
@@ -1533,9 +1580,11 @@ def run_stream_copy_concat(
 
     cmd = [
         ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+        "-fflags", "+genpts",
         "-f", "concat", "-safe", "0",
         "-i", str(concat_list_file),
         "-c", "copy",
+        "-avoid_negative_ts", "make_zero",
     ]
 
     if out_format in {"mp4", "mov"}:
@@ -1692,7 +1741,7 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         fps = str(options.get("fps", "original")).lower()
         bitrate = str(options.get("bitrate", "auto")).lower()
         custom_bitrate = str(options.get("custom_bitrate", "")).strip()
-        codec = str(options.get("codec", "h264")).lower()
+        codec = str(options.get("codec", "auto")).lower()
         color_filter_key = str(options.get("color_filter", "none")).strip().lower()
         custom_color_filter = str(options.get("custom_color_filter", "")).strip()
         audio_effect_key = str(options.get("audio_effect", "none")).strip().lower()
@@ -1835,7 +1884,17 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         temp_script_dir = output_dir
 
         if basic_stream_copy_ok:
-            target_codec_choice = codec if codec and codec != "auto" else (probed_infos[0].get("video_codec") or probed_infos[0].get("codec") or "h264")
+            from collections import Counter
+            raw_codecs = [canonical_video_codec(info.get("video_codec") or info.get("codec") or "") for info in probed_infos]
+            raw_codecs = [c for c in raw_codecs if c]
+            dominant_codec = Counter(raw_codecs).most_common(1)[0][0] if raw_codecs else "h264"
+
+            # Tự động phát hiện codec gốc nếu user chọn auto/original hoặc nếu đa số video là hevc
+            if codec in ("auto", "original", "") or (codec == "h264" and dominant_codec != "h264"):
+                target_codec_choice = dominant_codec
+            else:
+                target_codec_choice = canonical_video_codec(codec)
+
             outliers = find_outlier_videos(
                 probed_infos,
                 target_w=target_w,
@@ -1846,14 +1905,14 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
 
             if len(outliers) == 0:
                 can_attempt_stream_copy = True
-                _safe_log(f"[Stream Copy] 100% ({len(valid_files)} video) đồng nhất hoàn hảo! Bắt đầu ghép bằng Concat Demuxer (-c copy)...")
+                _safe_log(f"[Stream Copy] 100% ({len(valid_files)} video) đồng nhất hoàn hảo (codec={target_codec_choice}, {target_w}x{target_h})! Bắt đầu ghép bằng Concat Demuxer (-c copy)...")
                 update_task(
                     phase=phase_1,
                     progress=0.0,
                     message=f"Đang ghép siêu tốc Stream Copy ({len(valid_files)} video, tốc độ ~200x-500x)...",
                     gpu_encoder="Stream Copy (-c copy)",
                 )
-            elif len(outliers) <= max(1, len(valid_files) // 2):
+            elif len(outliers) <= max(1, int(len(valid_files) * 0.70)):
                 can_attempt_stream_copy = True
                 _safe_log(f"[Hybrid Concat] Phát hiện {len(outliers)}/{len(valid_files)} tập khác biệt. Đang chuẩn hóa riêng {len(outliers)} tập để ghép siêu tốc...")
                 update_task(
