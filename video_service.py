@@ -972,7 +972,7 @@ def generate_batch_filter_script(
     audio_filter_str: str,
     cut_end_seconds: float = 0.0,
     mirror: bool = False,
-    video_speed: float = 0.9,
+    video_speed: float = 1.0,
 ) -> str:
     """
     Generate optimized FFmpeg filter_complex script content.
@@ -1152,7 +1152,7 @@ def run_single_pass_encode(
     total_effective_dur: float,
     cut_end_seconds: float = 0.0,
     mirror: bool = False,
-    video_speed: float = 0.9,
+    video_speed: float = 1.0,
     progress_scale: float = 1.0,
     progress_base: float = 0.0,
 ) -> None:
@@ -1322,6 +1322,347 @@ def run_single_pass_encode(
                 pass
 
 
+def check_stream_copy_eligibility(
+    probed_infos: List[Dict[str, Any]],
+    cut_end_seconds: float = 0.0,
+    video_speed: float = 1.0,
+    mirror: bool = False,
+    color_filter_str: str = "",
+    audio_filter_str: str = "",
+    target_w: Optional[int] = None,
+    target_h: Optional[int] = None,
+) -> Tuple[bool, str]:
+    """
+    Check if a list of videos can be safely concatenated via FFmpeg Stream Copy (-c copy)
+    without re-encoding.
+    Requirements:
+      1. No frame manipulation (video_speed == 1.0, cut_end_seconds == 0, mirror == False, no color/audio filters).
+      2. All input files must have the same video codec, resolution, and audio channel/codec configuration.
+    """
+    if abs(video_speed - 1.0) > 0.005:
+        return False, f"Tốc độ phát ({video_speed:.2f}x != 1.0x) yêu cầu mã hóa lại để co giãn thời gian."
+    if cut_end_seconds > 0.001:
+        return False, f"Cắt bỏ phần đuôi ({cut_end_seconds:.1f}s) yêu cầu mã hóa lại để cắt chính xác frame."
+    if mirror:
+        return False, "Lật hình ngang (mirror) yêu cầu render lại frame."
+    if color_filter_str and color_filter_str.strip().lstrip(","):
+        return False, "Bộ lọc màu yêu cầu render lại frame."
+    if audio_filter_str and audio_filter_str.strip().lstrip(","):
+        return False, "Bộ lọc hiệu ứng âm thanh yêu cầu render lại audio."
+
+    if not probed_infos:
+        return False, "Không có thông tin video đầu vào."
+
+    first = probed_infos[0]
+    ref_codec = str(first.get("codec") or "").lower()
+    ref_w = int(first.get("width") or 0)
+    ref_h = int(first.get("height") or 0)
+    ref_audio = bool(first.get("has_audio", False))
+    ref_acodec = str(first.get("audio_codec") or "").lower()
+
+    if target_w and target_h and (ref_w != target_w or ref_h != target_h):
+        return False, f"Yêu cầu đổi độ phân giải ({ref_w}x{ref_h} -> {target_w}x{target_h})."
+
+    for idx, info in enumerate(probed_infos[1:], start=2):
+        v_codec = str(info.get("codec") or "").lower()
+        w = int(info.get("width") or 0)
+        h = int(info.get("height") or 0)
+        has_audio = bool(info.get("has_audio", False))
+        acodec = str(info.get("audio_codec") or "").lower()
+
+        if v_codec != ref_codec:
+            return False, f"Tập {idx} có codec video ({v_codec}) khác tập 1 ({ref_codec})."
+        if w != ref_w or h != ref_h:
+            return False, f"Tập {idx} có độ phân giải ({w}x{h}) khác tập 1 ({ref_w}x{ref_h})."
+        if has_audio != ref_audio:
+            return False, f"Tập {idx} có trạng thái âm thanh không đồng nhất với tập 1."
+        if ref_audio and acodec and acodec != ref_acodec:
+            return False, f"Tập {idx} có codec âm thanh ({acodec}) khác tập 1 ({ref_acodec})."
+
+    return True, "Tất cả thông số đồng nhất, đủ điều kiện ghép siêu tốc Stream Copy (-c copy)."
+
+
+def find_outlier_videos(
+    probed_infos: List[Dict[str, Any]],
+    target_w: int,
+    target_h: int,
+    target_fps: Optional[float] = None,
+    target_codec: str = "h264",
+) -> List[Tuple[int, Dict[str, Any], str]]:
+    """
+    Identify outlier video clips that differ from the target reference profile.
+    Returns: list of (index, info, diff_reason).
+    """
+    outliers = []
+    tgt_c = str(target_codec or "h264").lower()
+    if tgt_c in ["libx264", "h264_nvenc", "h264_qsv", "h264_amf"]:
+        tgt_c = "h264"
+    elif tgt_c in ["libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf"]:
+        tgt_c = "hevc"
+
+    for idx, info in enumerate(probed_infos):
+        reasons = []
+        w = int(info.get("width") or 0)
+        h = int(info.get("height") or 0)
+        c = str(info.get("video_codec") or info.get("codec") or "").lower()
+        if c in ["libx264", "h264_nvenc"]:
+            c = "h264"
+        elif c in ["libx265", "hevc_nvenc"]:
+            c = "hevc"
+        fps = float(info.get("fps") or 0.0)
+        has_audio = bool(info.get("has_audio", False))
+        acodec = str(info.get("audio_codec") or "").lower()
+
+        if w != target_w or h != target_h:
+            reasons.append(f"độ phân giải {w}x{h} != {target_w}x{target_h}")
+        if c and tgt_c and c != tgt_c:
+            reasons.append(f"codec video {c} != {tgt_c}")
+        if target_fps and fps > 0 and abs(fps - target_fps) > 0.5:
+            reasons.append(f"fps {fps:.1f} != {target_fps:.1f}")
+        if not has_audio:
+            reasons.append("thiếu audio track")
+        elif acodec and acodec not in ("aac", "mp4a"):
+            reasons.append(f"codec audio {acodec} != aac")
+
+        if reasons:
+            outliers.append((idx, info, ", ".join(reasons)))
+
+    return outliers
+
+
+def normalize_single_video(
+    input_file: Path,
+    output_file: Path,
+    target_w: int,
+    target_h: int,
+    target_fps: Optional[float],
+    enc_flags: List[str],
+    bitrate_flags: List[str],
+    ffmpeg_bin: str,
+    duration: float = 0.0,
+    has_audio: bool = True,
+) -> None:
+    """
+    Re-encode a single outlier video to precisely match the target profile
+    (resolution, SAR, FPS, format=yuv420p, audio AAC stereo 44100Hz).
+    """
+    v_filters = [
+        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:flags=bilinear",
+        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2",
+        "setsar=1",
+    ]
+    if target_fps and target_fps > 0:
+        v_filters.append(f"fps={target_fps}")
+    v_filters.append("format=yuv420p")
+    v_filter_str = ",".join(v_filters)
+
+    cmd = [ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning", "-i", str(input_file)]
+
+    if has_audio:
+        cmd.extend([
+            "-vf", v_filter_str,
+        ])
+        cmd.extend(enc_flags)
+        cmd.extend(bitrate_flags)
+        cmd.extend([
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+            "-movflags", "+faststart",
+            "-max_muxing_queue_size", "1024",
+            str(output_file),
+        ])
+    else:
+        dur_val = max(0.5, duration)
+        cmd.extend([
+            "-f", "lavfi", "-i", f"aevalsrc=0:d={dur_val:.3f}:s=44100:c=stereo",
+            "-vf", v_filter_str,
+        ])
+        cmd.extend(enc_flags)
+        cmd.extend(bitrate_flags)
+        cmd.extend([
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+            "-shortest",
+            "-movflags", "+faststart",
+            "-max_muxing_queue_size", "1024",
+            str(output_file),
+        ])
+
+    startupinfo = None
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+
+    res = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        startupinfo=startupinfo,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"Chuẩn hóa video thất bại ({res.returncode}): {res.stderr[:250]}")
+
+
+def run_stream_copy_concat(
+    batch_files: List[Path],
+    batch_output_file: Path,
+    temp_dir: Path,
+    ffmpeg_bin: str,
+    task_id: str,
+    update_task: Callable[..., None],
+    total_effective_dur: float,
+    out_format: str = "mp4",
+    progress_scale: float = 1.0,
+    progress_base: float = 0.0,
+) -> None:
+    """
+    Concatenate video files using FFmpeg Concat Demuxer with stream copy (-c copy).
+    Provides extreme throughput (100x - 500x speed) with 100% original fidelity.
+    """
+    concat_list_file = temp_dir / f"concat_list_{uuid.uuid4().hex[:8]}.txt"
+    with open(concat_list_file, "w", encoding="utf-8") as f:
+        for bf in batch_files:
+            p_str = str(bf.resolve()).replace("\\", "/").replace("'", "'\\''")
+            f.write(f"file '{p_str}'\n")
+
+    is_gdrive = str(batch_output_file).startswith("/content/drive")
+    if is_gdrive:
+        actual_output_target = Path("/tmp") / f"nvme_copy_{uuid.uuid4().hex[:8]}_{batch_output_file.name}"
+    else:
+        actual_output_target = batch_output_file
+
+    cmd = [
+        ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+        "-f", "concat", "-safe", "0",
+        "-i", str(concat_list_file),
+        "-c", "copy",
+    ]
+
+    if out_format in {"mp4", "mov"}:
+        cmd.extend(["-movflags", "+faststart"])
+
+    cmd.extend([
+        "-max_muxing_queue_size", "1024",
+        "-progress", "pipe:1",
+        str(actual_output_target),
+    ])
+
+    startupinfo = None
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            startupinfo=startupinfo,
+        )
+        update_task(proc=proc)
+
+        stderr_lines: List[str] = []
+        def _read_stderr():
+            try:
+                for s_line in proc.stderr:
+                    if s_line:
+                        stderr_lines.append(s_line.strip())
+                        if len(stderr_lines) > 50:
+                            stderr_lines.pop(0)
+            except Exception:
+                pass
+
+        stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+        stderr_thread.start()
+
+        last_update_time = time.time()
+        while True:
+            with MERGE_LOCK:
+                task_status = MERGE_TASKS.get(task_id, {})
+            if task_status.get("cancelled"):
+                proc.terminate()
+                raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+
+            line = proc.stdout.readline()
+            if not line and proc.poll() is not None:
+                break
+
+            line_str = line.strip()
+            if not line_str or "=" not in line_str:
+                continue
+
+            k, v = line_str.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+
+            if k == "out_time_us":
+                try:
+                    out_us = int(v)
+                    cur_sec = min(total_effective_dur, out_us / 1000000.0)
+                    raw_ratio = min(1.0, max(0.0, cur_sec / total_effective_dur))
+                    scaled_pct = progress_base + (raw_ratio * progress_scale * 100.0)
+                    pct = min(progress_base + progress_scale * 100.0 - 0.1, max(progress_base, scaled_pct))
+                    now = time.time()
+                    if now - last_update_time >= 0.15:
+                        last_update_time = now
+                        update_task(
+                            progress=round(pct, 1),
+                            current_duration=cur_sec,
+                            current_duration_str=format_duration(cur_sec),
+                        )
+                except Exception:
+                    pass
+            elif k == "speed":
+                speed_str = v.replace("x", "").strip()
+                try:
+                    speed_val = float(speed_str)
+                    if speed_val > 0:
+                        with MERGE_LOCK:
+                            cur_d = MERGE_TASKS.get(task_id, {}).get("current_duration", 0.0)
+                        rem_sec = max(0, (total_effective_dur - cur_d) / speed_val)
+                        update_task(speed=f"{speed_val:.1f}x", eta=f"{int(rem_sec)}s")
+                except Exception:
+                    update_task(speed=v)
+
+        proc.wait()
+        update_task(
+            progress=round(progress_base + progress_scale * 100.0, 1),
+            speed="-",
+            eta="-",
+        )
+
+        with MERGE_LOCK:
+            task_status = MERGE_TASKS.get(task_id, {})
+        if task_status.get("cancelled"):
+            raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+
+        if proc.returncode != 0:
+            err_msg = " \n".join(stderr_lines) if stderr_lines else "Lỗi không xác định"
+            raise RuntimeError(f"FFmpeg stream copy thất bại (mã lỗi {proc.returncode}): {err_msg[:350]}")
+
+        # Transfer local temporary file to Google Drive if applicable
+        if is_gdrive and actual_output_target.exists():
+            update_task(message="Đang chuyển file video hoàn tất vào Google Drive...")
+            batch_output_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(actual_output_target), str(batch_output_file))
+
+    finally:
+        try:
+            if concat_list_file.exists():
+                concat_list_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        if is_gdrive and actual_output_target.exists():
+            try:
+                actual_output_target.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -> None:
     """Core video merge execution function running in background thread."""
     with MERGE_LOCK:
@@ -1381,10 +1722,10 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
         elif audio_effect_key in AUDIO_PRESETS and AUDIO_PRESETS[audio_effect_key]:
             audio_filter_str = f",{AUDIO_PRESETS[audio_effect_key]}"
 
-        # Tốc độ video ghép từ các tập (mặc định chậm đi 0.9x theo yêu cầu)
-        video_speed = float(options.get("video_speed") or options.get("speed") or 0.9)
+        # Tốc độ video ghép từ các tập (mặc định 1.0x)
+        video_speed = float(options.get("video_speed") or options.get("speed") or 1.0)
         if video_speed <= 0:
-            video_speed = 0.9
+            video_speed = 1.0
 
         # 1. Probe all input files to obtain exact durations and stream info
         probed_infos = []
@@ -1473,62 +1814,157 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
             phase_4 = ""
             enc_scale = 0.90
 
-        gpu_pref = str(options.get("gpu", "nvenc")).lower()
-        chosen_encoder, enc_flags, bitrate_flags, display_label = build_encoding_args(
-            codec=codec,
-            gpu_pref=gpu_pref,
-            probed_infos=probed_infos,
+        # Check Stream Copy & Hybrid Selective Re-encoding eligibility
+        stream_copy_mode = str(options.get("stream_copy", "auto")).lower()
+        can_attempt_stream_copy = False
+        outliers = []
+        normalized_temp_files: List[Path] = []
+        concat_files_to_use = list(valid_files)
+
+        # Check basic constraints (no global time/color/geometry distortion)
+        basic_stream_copy_ok = (
+            stream_copy_mode not in ("never", "false", "0", "off", "no")
+            and abs(video_speed - 1.0) <= 0.005
+            and cut_end_seconds <= 0.001
+            and not mirror
+            and not (color_filter_str and color_filter_str.strip().lstrip(","))
+            and not (audio_filter_str and audio_filter_str.strip().lstrip(","))
         )
 
-        speed_label = f" (Tốc độ {video_speed:.2f}x)" if abs(video_speed - 1.0) > 0.005 else ""
-        update_task(
-            phase=phase_1,
-            progress=0.0,
-            message=f"Đang ghép 1 lần trực tiếp ({len(valid_files)} video){speed_label} với {display_label} ({target_w}x{target_h})...",
-            gpu_encoder=display_label,
-        )
-
-        # Encode directly to the final output file in a single pass without intermediate batch chunks
+        merged_successfully = False
         temp_script_dir = output_dir
-        try:
-            run_single_pass_encode(
-                valid_files,
+
+        if basic_stream_copy_ok:
+            target_codec_choice = codec if codec and codec != "auto" else (probed_infos[0].get("video_codec") or probed_infos[0].get("codec") or "h264")
+            outliers = find_outlier_videos(
                 probed_infos,
-                output_path,
-                target_w,
-                target_h,
-                target_fps,
-                color_filter_str,
-                audio_filter_str,
-                enc_flags,
-                bitrate_flags,
-                out_format,
-                temp_script_dir,
-                ffmpeg_bin,
-                task_id,
-                update_task,
-                0.0,
-                total_effective_duration,
-                cut_end_seconds=cut_end_seconds,
-                mirror=mirror,
-                video_speed=video_speed,
-                progress_scale=enc_scale,
-                progress_base=0.0,
+                target_w=target_w,
+                target_h=target_h,
+                target_fps=target_fps,
+                target_codec=target_codec_choice,
             )
-        except Exception as encode_err:
-            err_text = str(encode_err)
-            if any(k in err_text.lower() for k in ["mfx", "qsv", "nvenc", "cuda", "amf", "videotoolbox", "opening encoder", "encoder for output stream"]):
-                _safe_log(f"[Encoder Fallback] GPU encoder failed ({err_text[:100]}). Falling back to CPU libx264...")
+
+            if len(outliers) == 0:
+                can_attempt_stream_copy = True
+                _safe_log(f"[Stream Copy] 100% ({len(valid_files)} video) đồng nhất hoàn hảo! Bắt đầu ghép bằng Concat Demuxer (-c copy)...")
                 update_task(
                     phase=phase_1,
-                    message="Bộ mã hóa GPU không khởi động được. Đang chuyển sang CPU (libx264)...",
-                    gpu_encoder="CPU Software (libx264)"
+                    progress=0.0,
+                    message=f"Đang ghép siêu tốc Stream Copy ({len(valid_files)} video, tốc độ ~200x-500x)...",
+                    gpu_encoder="Stream Copy (-c copy)",
                 )
-                cpu_encoder, cpu_enc_flags, cpu_bitrate_flags, cpu_label = build_encoding_args(
-                    codec=codec,
-                    gpu_pref="cpu",
+            elif len(outliers) <= max(1, len(valid_files) // 2):
+                can_attempt_stream_copy = True
+                _safe_log(f"[Hybrid Concat] Phát hiện {len(outliers)}/{len(valid_files)} tập khác biệt. Đang chuẩn hóa riêng {len(outliers)} tập để ghép siêu tốc...")
+                update_task(
+                    phase=phase_1,
+                    progress=0.0,
+                    message=f"Đang chuẩn hóa riêng {len(outliers)} tập dị biệt để ghép siêu tốc...",
+                    gpu_encoder=f"Hybrid Stream Copy ({len(outliers)} chuẩn hóa)",
+                )
+
+                gpu_pref = str(options.get("gpu", "nvenc")).lower()
+                norm_encoder, norm_enc_flags, norm_bitrate_flags, norm_label = build_encoding_args(
+                    codec=target_codec_choice,
+                    gpu_pref=gpu_pref,
                     probed_infos=probed_infos,
                 )
+
+                norm_success = True
+                for norm_idx, (o_idx, o_info, o_reason) in enumerate(outliers, start=1):
+                    with MERGE_LOCK:
+                        task_status = MERGE_TASKS.get(task_id, {})
+                    if task_status.get("cancelled"):
+                        raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+
+                    orig_f = valid_files[o_idx]
+                    norm_out = temp_script_dir / f"norm_{uuid.uuid4().hex[:8]}_{orig_f.name}"
+                    if not norm_out.name.lower().endswith(f".{out_format}"):
+                        norm_out = norm_out.with_suffix(f".{out_format}")
+
+                    norm_pct = round(((norm_idx - 1) / len(outliers)) * (enc_scale * 0.6 * 100.0), 1)
+                    update_task(
+                        progress=norm_pct,
+                        message=f"Đang chuẩn hóa tập {o_idx + 1}/{len(valid_files)} ({orig_f.name}: {o_reason})...",
+                    )
+                    try:
+                        normalize_single_video(
+                            input_file=orig_f,
+                            output_file=norm_out,
+                            target_w=target_w,
+                            target_h=target_h,
+                            target_fps=target_fps,
+                            enc_flags=norm_enc_flags,
+                            bitrate_flags=norm_bitrate_flags,
+                            ffmpeg_bin=ffmpeg_bin,
+                            duration=o_info.get("duration", 0.0),
+                            has_audio=o_info.get("has_audio", True),
+                        )
+                        normalized_temp_files.append(norm_out)
+                        concat_files_to_use[o_idx] = norm_out
+                    except Exception as norm_err:
+                        _safe_log(f"[Hybrid Concat] Chuẩn hóa tập {orig_f.name} thất bại ({norm_err}). Chuyển về Single-Pass Encode...")
+                        norm_success = False
+                        break
+
+                if not norm_success:
+                    can_attempt_stream_copy = False
+            else:
+                _safe_log(f"[Stream Copy] Có quá nhiều tập khác biệt ({len(outliers)}/{len(valid_files)} > 50%). Sử dụng Single-Pass Encode...")
+
+            if can_attempt_stream_copy:
+                try:
+                    update_task(
+                        phase=phase_1,
+                        message=f"Đang ghép siêu tốc Stream Copy ({len(valid_files)} video đã chuẩn hóa)...",
+                        gpu_encoder="Stream Copy (-c copy)",
+                    )
+                    run_stream_copy_concat(
+                        batch_files=concat_files_to_use,
+                        batch_output_file=output_path,
+                        temp_dir=temp_script_dir,
+                        ffmpeg_bin=ffmpeg_bin,
+                        task_id=task_id,
+                        update_task=update_task,
+                        total_effective_dur=total_effective_duration,
+                        out_format=out_format,
+                        progress_scale=enc_scale,
+                        progress_base=0.0,
+                    )
+                    merged_successfully = True
+                except Exception as copy_err:
+                    _safe_log(f"[Stream Copy Fallback] Stream copy thất bại ({copy_err}). Tự động chuyển sang Encode...")
+                    update_task(
+                        phase=phase_1,
+                        message="Stream copy không tương thích định dạng file. Đang chuyển sang Single-Pass Encode...",
+                    )
+
+        # Cleanup normalized temp files if any
+        if normalized_temp_files:
+            for tf in normalized_temp_files:
+                try:
+                    tf.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            normalized_temp_files.clear()
+
+        if not merged_successfully:
+            gpu_pref = str(options.get("gpu", "nvenc")).lower()
+            chosen_encoder, enc_flags, bitrate_flags, display_label = build_encoding_args(
+                codec=codec,
+                gpu_pref=gpu_pref,
+                probed_infos=probed_infos,
+            )
+
+            speed_label = f" (Tốc độ {video_speed:.2f}x)" if abs(video_speed - 1.0) > 0.005 else ""
+            update_task(
+                phase=phase_1,
+                progress=0.0,
+                message=f"Đang ghép 1 lần trực tiếp ({len(valid_files)} video){speed_label} với {display_label} ({target_w}x{target_h})...",
+                gpu_encoder=display_label,
+            )
+
+            try:
                 run_single_pass_encode(
                     valid_files,
                     probed_infos,
@@ -1538,8 +1974,8 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                     target_fps,
                     color_filter_str,
                     audio_filter_str,
-                    cpu_enc_flags,
-                    cpu_bitrate_flags,
+                    enc_flags,
+                    bitrate_flags,
                     out_format,
                     temp_script_dir,
                     ffmpeg_bin,
@@ -1553,8 +1989,46 @@ def execute_merge_job(task_id: str, files: List[str], options: Dict[str, Any]) -
                     progress_scale=enc_scale,
                     progress_base=0.0,
                 )
-            else:
-                raise encode_err
+            except Exception as encode_err:
+                err_text = str(encode_err)
+                if any(k in err_text.lower() for k in ["mfx", "qsv", "nvenc", "cuda", "amf", "videotoolbox", "opening encoder", "encoder for output stream"]):
+                    _safe_log(f"[Encoder Fallback] GPU encoder failed ({err_text[:100]}). Falling back to CPU libx264...")
+                    update_task(
+                        phase=phase_1,
+                        message="Bộ mã hóa GPU không khởi động được. Đang chuyển sang CPU (libx264)...",
+                        gpu_encoder="CPU Software (libx264)"
+                    )
+                    cpu_encoder, cpu_enc_flags, cpu_bitrate_flags, cpu_label = build_encoding_args(
+                        codec=codec,
+                        gpu_pref="cpu",
+                        probed_infos=probed_infos,
+                    )
+                    run_single_pass_encode(
+                        valid_files,
+                        probed_infos,
+                        output_path,
+                        target_w,
+                        target_h,
+                        target_fps,
+                        color_filter_str,
+                        audio_filter_str,
+                        cpu_enc_flags,
+                        cpu_bitrate_flags,
+                        out_format,
+                        temp_script_dir,
+                        ffmpeg_bin,
+                        task_id,
+                        update_task,
+                        0.0,
+                        total_effective_duration,
+                        cut_end_seconds=cut_end_seconds,
+                        mirror=mirror,
+                        video_speed=video_speed,
+                        progress_scale=enc_scale,
+                        progress_base=0.0,
+                    )
+                else:
+                    raise encode_err
 
         with MERGE_LOCK:
             task_status = MERGE_TASKS.get(task_id, {})

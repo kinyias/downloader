@@ -39,10 +39,14 @@ def is_colab() -> bool:
 
 
 def detect_drive_folder() -> Path:
-    """Detect if Google Drive is mounted, return suitable download directory."""
-    gdrive_mount = Path("/content/drive/MyDrive")
-    if gdrive_mount.exists() and gdrive_mount.is_dir():
-        target = gdrive_mount / "ShortDrama_Downloads"
+    """Return fast local download directory (e.g. /content/downloads on Colab or ./src locally)."""
+    custom_env = os.getenv("DOWNLOAD_DIR", "").strip()
+    if custom_env:
+        target = Path(custom_env).resolve()
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+    if Path("/content").exists():
+        target = Path("/content/downloads")
         target.mkdir(parents=True, exist_ok=True)
         return target
     # Default local folder

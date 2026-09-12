@@ -42,16 +42,15 @@ video_service = importlib.import_module("video_service")
 # ───────────────────────── Helper Functions ─────────────────────────
 
 def get_default_download_dir() -> Path:
-    """Detect Google Drive mount in Colab or default local directory."""
-    gdrive_mount = Path("/content/drive/MyDrive")
-    if gdrive_mount.exists() and gdrive_mount.is_dir():
-        target = gdrive_mount / "ShortDrama_Downloads"
-        target.mkdir(parents=True, exist_ok=True)
-        return target
-
+    """Return fast local download directory (e.g. /content/downloads on Colab or ./src locally)."""
     custom_env = os.getenv("DOWNLOAD_DIR", "").strip()
     if custom_env:
         target = Path(custom_env).resolve()
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    if Path("/content").exists():
+        target = Path("/content/downloads")
         target.mkdir(parents=True, exist_ok=True)
         return target
 
@@ -305,7 +304,7 @@ def cli_download_series(
     dubbing: bool = True,
     tts_voice: str = "Ngọc Huyền",
     tts_batch_size: int = 64,
-    video_speed: float = 0.9,
+    video_speed: float = 1.0,
 ) -> Optional[Path]:
     """
     Download selected episodes of a series with concurrent multi-threading
@@ -539,7 +538,7 @@ def cli_merge_folder(
     dubbing: bool = True,
     tts_voice: str = "Ngọc Huyền",
     tts_batch_size: int = 64,
-    video_speed: float = 0.9,
+    video_speed: float = 1.0,
 ) -> Optional[Path]:
     """
     Merge all video files in a folder into one continuous video with live CLI progress bar,
@@ -623,7 +622,7 @@ def cli_merge_folder(
         "dubbing": bool(dubbing),
         "tts_voice": str(tts_voice or "Ngọc Huyền"),
         "tts_batch_size": int(tts_batch_size or 64),
-        "video_speed": float(video_speed or 0.9),
+        "video_speed": float(video_speed if video_speed is not None else 1.0),
     }
 
     initial_desc = "🎬 [1/4] Ghép video" if dubbing else ("🎬 [1/2] Ghép video" if generate_subtitles else "🎬 Ghép video")
@@ -969,7 +968,7 @@ def main():
     p_dl.add_argument("--cut-end", type=float, default=0.0, help="Số giây cắt bỏ ở cuối mỗi tập (mặc định: 0)")
     p_dl.add_argument("--mirror", action="store_true", help="Lật hình ngang (Mirror video)")
     p_dl.add_argument("--clean-parts", action="store_true", help="Xóa các tập lẻ sau khi ghép thành công")
-    p_dl.add_argument("--save-dir", type=str, default="", help="Thư mục lưu video (mặc định: Google Drive hoặc ./src)")
+    p_dl.add_argument("--save-dir", type=str, default="", help="Thư mục lưu video (mặc định: /content/downloads hoặc ./src)")
     p_dl.add_argument("--codec", type=str, default="h264", choices=["h264", "hevc"], help="Định dạng codec video")
     p_dl.add_argument("--gpu", type=str, default="nvenc", choices=["nvenc", "cpu", "qsv", "amf"], help="Bộ mã hóa phần cứng")
     p_dl.add_argument("--no-upload", action="store_true", help="Không tự động tải lên storage.to sau khi ghép")
@@ -982,7 +981,7 @@ def main():
     p_dl.add_argument("--no-dubbing", action="store_true", help="Không tự động lồng tiếng video với VieNeu-TTS")
     p_dl.add_argument("--voice", "--tts-voice", dest="tts_voice", type=str, default="Ngọc Huyền", help="Giọng đọc VieNeu-TTS (mặc định: Ngọc Huyền)")
     p_dl.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=64, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 64)")
-    p_dl.add_argument("--speed", "--video-speed", dest="video_speed", type=float, default=0.9, help="Tốc độ phát của video sau khi ghép (mặc định: 0.9x)")
+    p_dl.add_argument("--speed", "--video-speed", dest="video_speed", type=float, default=1.0, help="Tốc độ phát của video sau khi ghép (mặc định: 1.0x)")
 
     # Command: search
     p_sc = subparsers.add_parser("search", help="Tìm kiếm phim theo từ khóa")
@@ -1008,7 +1007,7 @@ def main():
     p_mg.add_argument("--no-dubbing", action="store_true", help="Không tự động lồng tiếng video với VieNeu-TTS")
     p_mg.add_argument("--voice", "--tts-voice", dest="tts_voice", type=str, default="Ngọc Huyền", help="Giọng đọc VieNeu-TTS (mặc định: Ngọc Huyền)")
     p_mg.add_argument("--batch-size", "--tts-batch-size", dest="tts_batch_size", type=int, default=64, help="Kích thước batch cho VieNeu-TTS infer_batch (mặc định: 64)")
-    p_mg.add_argument("--speed", "--video-speed", dest="video_speed", type=float, default=0.9, help="Tốc độ phát của video sau khi ghép (mặc định: 0.9x)")
+    p_mg.add_argument("--speed", "--video-speed", dest="video_speed", type=float, default=1.0, help="Tốc độ phát của video sau khi ghép (mặc định: 1.0x)")
 
     # Command: check-gpu
     subparsers.add_parser("check-gpu", help="Kiểm tra chi tiết GPU & bộ mã hóa NVIDIA NVENC")
@@ -1058,7 +1057,7 @@ def main():
             dubbing=not args.no_dubbing,
             tts_voice=args.tts_voice,
             tts_batch_size=args.tts_batch_size,
-            video_speed=getattr(args, "video_speed", 0.9),
+            video_speed=getattr(args, "video_speed", 1.0),
         )
 
     elif args.command == "merge":
@@ -1081,7 +1080,7 @@ def main():
             dubbing=not args.no_dubbing,
             tts_voice=args.tts_voice,
             tts_batch_size=args.tts_batch_size,
-            video_speed=getattr(args, "video_speed", 0.9),
+            video_speed=getattr(args, "video_speed", 1.0),
         )
 
     elif args.command == "register":

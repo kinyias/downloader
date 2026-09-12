@@ -812,7 +812,7 @@ def api_choose_directory():
             return jsonify({
                 "ok": False,
                 "headless": True,
-                "message": "Môi trường Linux/Google Colab không có giao diện cửa sổ. Bạn có thể nhập trực tiếp đường dẫn thư mục (ví dụ: /content/drive/MyDrive/ShortDrama hoặc ./src)."
+                "message": "Môi trường Linux/Google Colab không có giao diện cửa sổ. Bạn có thể nhập trực tiếp đường dẫn thư mục (ví dụ: /content/downloads hoặc ./src)."
             })
         import tkinter as tk
         from tkinter import filedialog
@@ -970,7 +970,8 @@ def _parse_merge_options(payload: dict, default_full_flow: bool = False) -> dict
         "tts_batch_size": int(payload.get("tts_batch_size") or payload.get("batch_size") or 64),
         "max_speedup": float(payload.get("max_speedup") or payload.get("tts_speedup") or 1.35),
         "tolerance": float(payload.get("tolerance") or payload.get("tts_tolerance") or 0.3),
-        "video_speed": float(payload.get("video_speed") or payload.get("speed") or 0.9),
+        "video_speed": float(payload.get("video_speed") or payload.get("speed") or 1.0),
+        "stream_copy": str(payload.get("stream_copy") or "auto").strip(),
         "bg_volume": float(payload.get("bg_volume") if payload.get("bg_volume") is not None else payload.get("dub_bg_volume", 0.1)),
         "dub_volume": float(payload.get("dub_volume") if payload.get("dub_volume") is not None else payload.get("dubbing_volume", 3.0)),
         "dub_pitch_down_pct": float(payload.get("dub_pitch_down_pct") if payload.get("dub_pitch_down_pct") is not None else 5.0),

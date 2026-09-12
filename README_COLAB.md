@@ -4,7 +4,7 @@ Công cụ chạy **thuần túy bằng dòng lệnh (CLI)** trực tiếp trong
 - 🚀 **Không cần Web UI / Không cần mở port hay tạo tunnel**.
 - 📊 **Thanh tiến trình (Progress Bar)** hiển thị trực quan phần trăm, tốc độ tải và tốc độ ghép video FFmpeg.
 - ⚡ **Tăng tốc GPU (NVIDIA T4 / A100)**: Tự động nhận diện GPU để ghép video siêu tốc.
-- ☁️ **Lưu trực tiếp vào Google Drive**: `/content/drive/MyDrive/ShortDrama_Downloads`.
+- ☁️ **Tự động tải lên storage.to**: Nhận link tải trực tiếp siêu tốc, lưu file tạm trên ổ SSD `/content/downloads`.
 
 ---
 
@@ -65,7 +65,7 @@ Hiển thị bảng danh sách phim kèm Series ID, số tập, thể loại đ�
 
 ### 4. Ghép các tập video có sẵn trong một thư mục
 ```bash
-python cli.py merge "/content/drive/MyDrive/ShortDrama_Downloads/Ten_Phim" --output-name "Phim_Hoan_Chinh.mp4"
+python cli.py merge "/content/downloads/Ten_Phim" --output-name "Phim_Hoan_Chinh.mp4"
 ```
 Hiển thị thanh tiến trình FFmpeg (0% -> 100%, tốc độ render e.g. `6.5x`, thời gian còn lại).
 
