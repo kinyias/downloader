@@ -1563,14 +1563,13 @@ def run_stream_copy_concat(
     progress_base: float = 0.0,
 ) -> None:
     """
-    Concatenate video files using FFmpeg Concat Demuxer with stream copy (-c copy).
-    Provides extreme throughput (100x - 500x speed) with 100% original fidelity.
+    Concatenate video files using Hybrid Stream Copy Architecture:
+      1. Video Stream Copy (-map 0:v:0 -c:v copy): Extreme speed (300x-500x), zero quality loss.
+      2. Parallel Clean Audio Extraction & Concatenation: Extracts audio of each episode to PCM WAV,
+         concatenates them into a pristine master audio track without bitstream/PCE corruption.
+      3. Fast Remux (-c:v copy -c:a copy): Combines clean video + audio into final output in ~1 sec.
     """
-    concat_list_file = temp_dir / f"concat_list_{uuid.uuid4().hex[:8]}.txt"
-    with open(concat_list_file, "w", encoding="utf-8") as f:
-        for bf in batch_files:
-            p_str = str(bf.resolve()).replace("\\", "/").replace("'", "'\\''")
-            f.write(f"file '{p_str}'\n")
+    from concurrent.futures import ThreadPoolExecutor
 
     is_gdrive = str(batch_output_file).startswith("/content/drive")
     if is_gdrive:
@@ -1578,134 +1577,188 @@ def run_stream_copy_concat(
     else:
         actual_output_target = batch_output_file
 
-    cmd = [
-        ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
-        "-fflags", "+genpts",
-        "-f", "concat", "-safe", "0",
-        "-i", str(concat_list_file),
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "192k",
-        "-avoid_negative_ts", "make_zero",
-    ]
-
-    if out_format in {"mp4", "mov"}:
-        cmd.extend(["-movflags", "+faststart"])
-
-    cmd.extend([
-        "-max_muxing_queue_size", "1024",
-        "-progress", "pipe:1",
-        str(actual_output_target),
-    ])
-
     startupinfo = None
     if sys.platform == "win32":
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
 
+    concat_list_file = temp_dir / f"concat_list_{uuid.uuid4().hex[:8]}.txt"
+    temp_video_only = temp_dir / f"vcopy_{uuid.uuid4().hex[:8]}.mp4"
+    temp_master_audio = temp_dir / f"amaster_{uuid.uuid4().hex[:8]}.m4a"
+    w_list_file = temp_dir / f"wlist_{uuid.uuid4().hex[:8]}.txt"
+    created_wavs: List[Path] = []
+
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            startupinfo=startupinfo,
-        )
-        update_task(proc=proc)
-
-        stderr_lines: List[str] = []
-        def _read_stderr():
-            try:
-                for s_line in proc.stderr:
-                    if s_line:
-                        stderr_lines.append(s_line.strip())
-                        if len(stderr_lines) > 50:
-                            stderr_lines.pop(0)
-            except Exception:
-                pass
-
-        stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
-        stderr_thread.start()
-
-        last_update_time = time.time()
-        while True:
-            with MERGE_LOCK:
-                task_status = MERGE_TASKS.get(task_id, {})
-            if task_status.get("cancelled"):
-                proc.terminate()
+        # Check cancellation
+        with MERGE_LOCK:
+            if MERGE_TASKS.get(task_id, {}).get("cancelled"):
                 raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
 
-            line = proc.stdout.readline()
-            if not line and proc.poll() is not None:
-                break
+        # --- Giai đoạn 1: Ghép luồng hình ảnh bằng Stream Copy (-c:v copy) ---
+        update_task(
+            progress=round(progress_base + progress_scale * 5.0, 1),
+            message=f"Đang ghép luồng hình ảnh Stream Copy ({len(batch_files)} tập, tốc độ ~500x)...",
+            gpu_encoder="Stream Copy (-c:v copy)",
+        )
 
-            line_str = line.strip()
-            if not line_str or "=" not in line_str:
-                continue
+        with open(concat_list_file, "w", encoding="utf-8") as f:
+            for bf in batch_files:
+                p_str = str(bf.resolve()).replace("\\", "/").replace("'", "'\\''")
+                f.write(f"file '{p_str}'\n")
 
-            k, v = line_str.split("=", 1)
-            k = k.strip()
-            v = v.strip()
+        cmd_v = [
+            ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+            "-err_detect", "ignore_err",
+            "-fflags", "+genpts+discardcorrupt",
+            "-f", "concat", "-safe", "0",
+            "-i", str(concat_list_file),
+            "-map", "0:v:0",
+            "-c:v", "copy",
+            "-avoid_negative_ts", "make_zero",
+            str(temp_video_only),
+        ]
 
-            if k == "out_time_us":
+        proc_v = subprocess.run(cmd_v, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo)
+        if proc_v.returncode != 0 or not temp_video_only.exists() or temp_video_only.stat().st_size == 0:
+            raise RuntimeError(f"Ghép luồng video thất bại ({proc_v.returncode}): {proc_v.stderr[:300]}")
+
+        # --- Giai đoạn 2: Trích xuất và ghép âm thanh sạch đa luồng song song ---
+        num_workers = min(8, max(2, (os.cpu_count() or 4)))
+        update_task(
+            progress=round(progress_base + progress_scale * 45.0, 1),
+            message=f"Đang trích xuất âm thanh sạch song song ({len(batch_files)} tập, {num_workers} luồng)...",
+            gpu_encoder=f"Audio Clean Extraction ({num_workers} luồng)",
+        )
+
+        def _extract_episode_audio(item: Tuple[int, Path]) -> Tuple[int, Path]:
+            idx, bf = item
+            with MERGE_LOCK:
+                if MERGE_TASKS.get(task_id, {}).get("cancelled"):
+                    raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
+
+            wav_path = temp_dir / f"aud_{idx:04d}_{uuid.uuid4().hex[:6]}.wav"
+            cmd_a = [
+                ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+                "-err_detect", "ignore_err",
+                "-i", str(bf),
+                "-vn",
+                "-c:a", "pcm_s16le",
+                "-ar", "44100",
+                "-ac", "2",
+                str(wav_path),
+            ]
+            res = subprocess.run(cmd_a, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startupinfo)
+            if res.returncode != 0 or not wav_path.exists() or wav_path.stat().st_size == 0:
+                # Nếu tập không có audio track, tạo audio câm chuẩn theo thời lượng video để giữ đồng bộ
+                clip_dur = 2.0
                 try:
-                    out_us = int(v)
-                    cur_sec = min(total_effective_dur, out_us / 1000000.0)
-                    raw_ratio = min(1.0, max(0.0, cur_sec / total_effective_dur))
-                    scaled_pct = progress_base + (raw_ratio * progress_scale * 100.0)
-                    pct = min(progress_base + progress_scale * 100.0 - 0.1, max(progress_base, scaled_pct))
-                    now = time.time()
-                    if now - last_update_time >= 0.15:
-                        last_update_time = now
-                        update_task(
-                            progress=round(pct, 1),
-                            current_duration=cur_sec,
-                            current_duration_str=format_duration(cur_sec),
-                        )
+                    p_info = probe_video_info(bf)
+                    if p_info.get("duration", 0) > 0:
+                        clip_dur = float(p_info["duration"])
                 except Exception:
                     pass
-            elif k == "speed":
-                speed_str = v.replace("x", "").strip()
-                try:
-                    speed_val = float(speed_str)
-                    if speed_val > 0:
-                        with MERGE_LOCK:
-                            cur_d = MERGE_TASKS.get(task_id, {}).get("current_duration", 0.0)
-                        rem_sec = max(0, (total_effective_dur - cur_d) / speed_val)
-                        update_task(speed=f"{speed_val:.1f}x", eta=f"{int(rem_sec)}s")
-                except Exception:
-                    update_task(speed=v)
+                cmd_silence = [
+                    ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                    "-t", f"{clip_dur:.3f}",
+                    "-c:a", "pcm_s16le",
+                    str(wav_path),
+                ]
+                subprocess.run(cmd_silence, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startupinfo)
+            return (idx, wav_path)
 
-        proc.wait()
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            extracted_results = list(executor.map(_extract_episode_audio, enumerate(batch_files)))
+
+        extracted_results.sort(key=lambda x: x[0])
+        created_wavs = [w[1] for w in extracted_results]
+
+        update_task(
+            progress=round(progress_base + progress_scale * 75.0, 1),
+            message="Đang nối các đoạn âm thanh thành Master Audio chuẩn AAC...",
+            gpu_encoder="Pristine Audio Concat",
+        )
+
+        with open(w_list_file, "w", encoding="utf-8") as f:
+            for wf in created_wavs:
+                p_str = str(wf.resolve()).replace("\\", "/").replace("'", "'\\''")
+                f.write(f"file '{p_str}'\n")
+
+        cmd_a_concat = [
+            ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+            "-f", "concat", "-safe", "0",
+            "-i", str(w_list_file),
+            "-c:a", "aac",
+            "-b:a", "192k",
+            str(temp_master_audio),
+        ]
+        proc_a = subprocess.run(cmd_a_concat, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo)
+        if proc_a.returncode != 0 or not temp_master_audio.exists() or temp_master_audio.stat().st_size == 0:
+            raise RuntimeError(f"Nối âm thanh master thất bại ({proc_a.returncode}): {proc_a.stderr[:300]}")
+
+        # Xóa các file wav tạm thời để tiết kiệm dung lượng ổ đĩa
+        for wf in created_wavs:
+            try:
+                wf.unlink(missing_ok=True)
+            except Exception:
+                pass
+        created_wavs.clear()
+        try:
+            w_list_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        # --- Giai đoạn 3: Đóng gói (Mux) Video Stream Copy + Audio Master ---
+        update_task(
+            progress=round(progress_base + progress_scale * 90.0, 1),
+            message="Đang đóng gói Video Stream Copy và Audio sạch hoàn chỉnh...",
+            gpu_encoder="Fast Remux (-c copy)",
+        )
+
+        cmd_mux = [
+            ffmpeg_bin, "-y", "-nostats", "-loglevel", "warning",
+            "-i", str(temp_video_only),
+            "-i", str(temp_master_audio),
+            "-c:v", "copy",
+            "-c:a", "copy",
+        ]
+        if out_format in {"mp4", "mov"}:
+            cmd_mux.extend(["-movflags", "+faststart"])
+        cmd_mux.extend([
+            "-max_muxing_queue_size", "1024",
+            str(actual_output_target),
+        ])
+
+        proc_mux = subprocess.run(cmd_mux, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo)
+        if proc_mux.returncode != 0 or not actual_output_target.exists() or actual_output_target.stat().st_size == 0:
+            raise RuntimeError(f"Đóng gói mux video và audio thất bại ({proc_mux.returncode}): {proc_mux.stderr[:300]}")
+
+        # Hoàn tất tiến độ ghép
         update_task(
             progress=round(progress_base + progress_scale * 100.0, 1),
             speed="-",
             eta="-",
         )
 
-        with MERGE_LOCK:
-            task_status = MERGE_TASKS.get(task_id, {})
-        if task_status.get("cancelled"):
-            raise RuntimeError("Tiến trình đã bị người dùng hủy bỏ.")
-
-        if proc.returncode != 0:
-            err_msg = " \n".join(stderr_lines) if stderr_lines else "Lỗi không xác định"
-            raise RuntimeError(f"FFmpeg stream copy thất bại (mã lỗi {proc.returncode}): {err_msg[:350]}")
-
-        # Transfer local temporary file to Google Drive if applicable
+        # Chuyển file sang Google Drive nếu lưu trên GDrive
         if is_gdrive and actual_output_target.exists():
             update_task(message="Đang chuyển file video hoàn tất vào Google Drive...")
             batch_output_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(actual_output_target), str(batch_output_file))
 
     finally:
-        try:
-            if concat_list_file.exists():
-                concat_list_file.unlink(missing_ok=True)
-        except Exception:
-            pass
+        # Dọn dẹp tất cả file tạm
+        for tf in [concat_list_file, temp_video_only, temp_master_audio, w_list_file]:
+            try:
+                tf.unlink(missing_ok=True)
+            except Exception:
+                pass
+        for wf in created_wavs:
+            try:
+                wf.unlink(missing_ok=True)
+            except Exception:
+                pass
         if is_gdrive and actual_output_target.exists():
             try:
                 actual_output_target.unlink(missing_ok=True)

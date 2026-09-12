@@ -1373,6 +1373,8 @@ def denoise_audio(ffmpeg_bin: str, video_path: str, out_mp3: str,
     # Trích xuất trực tiếp MP3 16kHz mono chất lượng chuẩn ASR, sử dụng VBR và aresample chống crash LAME
     cmd = [
         ffmpeg_bin or "ffmpeg", "-y",
+        "-err_detect", "ignore_err",
+        "-fflags", "+genpts+discardcorrupt",
         "-i", video_path,
         "-vn",
         "-af", "aresample=async=1:first_pts=0",
