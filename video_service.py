@@ -974,11 +974,18 @@ def generate_batch_filter_script(
     mirror: bool = False,
     video_speed: float = 0.9,
 ) -> str:
-    """Generate FFmpeg filter_complex script content with ultra-fast size/SAR normalization, speed scaling (default 0.9x), and frame-accurate sync."""
+    """
+    Generate optimized FFmpeg filter_complex script content.
+    Optimizations (CPU-load reduction & high throughput):
+      1. Post-concat audio processing: aresample (async sync) and audio distortion effects run
+         once on the merged master stream instead of N times per clip, eliminating CPU bottleneck.
+      2. Post-concat video filters: mirror (hflip) and color grading presets run once on the merged
+         stream instead of duplicating on every single input clip.
+      3. Lightweight per-clip stream preparation: only trim/setpts, geometry scaling (if size differs),
+         speed atempo, and fast format guard.
+    """
     filter_parts = []
     concat_inputs = []
-
-    mirror_part = ",hflip" if mirror else ""
 
     for idx, (f, info) in enumerate(zip(batch_files, batch_infos)):
         dur = info["effective_duration"]
@@ -993,11 +1000,11 @@ def generate_batch_filter_script(
         if cut_end_seconds > 0:
             v_filters.append(f"trim=start=0:duration={clip_dur:.3f}")
 
-        # Tốc độ phát video (mặc định 0.9x -> video chậm lại 10%)
+        # Tốc độ phát video (ví dụ: 0.9x -> video chậm lại 10%)
         if abs(video_speed - 1.0) > 0.005 and video_speed > 0:
             v_pts = 1.0 / video_speed
             v_filters.append(f"setpts=(PTS-STARTPTS)*{v_pts:.6f}")
-        else:
+        elif cut_end_seconds > 0 or float(info.get("start_time") or 0.0) > 0.05:
             v_filters.append("setpts=PTS-STARTPTS")
 
         if in_w != target_w or in_h != target_h:
@@ -1010,32 +1017,57 @@ def generate_batch_filter_script(
         if target_fps and abs(in_fps - target_fps) > 0.5:
             v_filters.append(f"fps={target_fps}")
 
-        if mirror:
-            v_filters.append("hflip")
-        if color_filter_str:
-            clean_cf = color_filter_str.lstrip(",")
-            if clean_cf:
-                v_filters.append(clean_cf)
-
         v_filters.append("format=yuv420p")
         v_filter_combined = ",".join(v_filters)
         filter_parts.append(f"[{idx}:v]{v_filter_combined}[v{idx}]")
 
-        # Audio stream: setpts, atempo (đồng bộ với video_speed 0.9x), resample with async sync, format stereo 44100Hz
-        tempo_filter = f",atempo={video_speed:.4f}" if (abs(video_speed - 1.0) > 0.005 and video_speed > 0) else ""
+        # Audio stream: per-clip trim, PTS reset, and atempo (if speed != 1.0) to maintain exact A/V sync per segment.
+        # Format guard (sample_rates=44100:channel_layouts=stereo) ensures uniform concat inputs with minimal CPU overhead.
         if has_audio:
+            a_filters = []
             if cut_end_seconds > 0:
-                a_filter = f"atrim=start=0:duration={clip_dur:.3f},asetpts=PTS-STARTPTS{tempo_filter},aresample=44100:async=1000:first_pts=0,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo{audio_filter_str}"
-            else:
-                a_filter = f"asetpts=PTS-STARTPTS{tempo_filter},aresample=44100:async=1000:first_pts=0,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo{audio_filter_str}"
-            filter_parts.append(f"[{idx}:a]{a_filter}[a{idx}]")
+                a_filters.append(f"atrim=start=0:duration={clip_dur:.3f}")
+            a_filters.append("asetpts=PTS-STARTPTS")
+            if abs(video_speed - 1.0) > 0.005 and video_speed > 0:
+                a_filters.append(f"atempo={video_speed:.4f}")
+            a_filters.append("aformat=sample_rates=44100:channel_layouts=stereo")
+            a_filter_combined = ",".join(a_filters)
+            filter_parts.append(f"[{idx}:a]{a_filter_combined}[a{idx}]")
         else:
             filter_parts.append(f"aevalsrc=0:d={dur:.3f}:s=44100:c=stereo[a{idx}]")
 
         concat_inputs.append(f"[v{idx}][a{idx}]")
 
     n_clips = len(batch_files)
-    filter_parts.append(f"{''.join(concat_inputs)}concat=n={n_clips}:v=1:a=1[outv][outa]")
+
+    # Video post-concat filters (mirror, color grading) run ONCE on merged stream instead of N times
+    post_v_filters = []
+    if mirror:
+        post_v_filters.append("hflip")
+    if color_filter_str:
+        clean_cf = color_filter_str.lstrip(",")
+        if clean_cf:
+            post_v_filters.append(clean_cf)
+
+    v_concat_out = "[raw_v]" if post_v_filters else "[outv]"
+
+    # Audio post-concat filters (aresample async sync, audio distortion/effects) run ONCE on merged stream instead of N times
+    post_a_filters = ["aresample=44100:async=1000:first_pts=0"]
+    if audio_filter_str:
+        clean_af = audio_filter_str.lstrip(",")
+        if clean_af:
+            post_a_filters.append(clean_af)
+    post_a_filters.append("aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo")
+    a_concat_out = "[raw_a]"
+
+    # Concat line
+    filter_parts.append(f"{''.join(concat_inputs)}concat=n={n_clips}:v=1:a=1{v_concat_out}{a_concat_out}")
+
+    # Append single-instance post filters
+    if post_v_filters:
+        filter_parts.append(f"[raw_v]{','.join(post_v_filters)}[outv]")
+    filter_parts.append(f"[raw_a]{','.join(post_a_filters)}[outa]")
+
     return ";\n".join(filter_parts)
 
 
@@ -1158,6 +1190,7 @@ def run_single_pass_encode(
         actual_output_target = batch_output_file
 
     cmd.extend([
+        "-max_muxing_queue_size", "1024",
         "-threads", "0",
         "-progress", "pipe:1",
         str(actual_output_target),
